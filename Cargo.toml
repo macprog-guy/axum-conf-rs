@@ -1,0 +1,158 @@
+[package]
+name = "axum-conf"
+version = "0.3.2"
+edition = "2024"
+authors = ["Eric Methot <emethot@pictet.com>"]
+description = "A library to simplify the use of Axum, Tokio and Postgres together."
+license = "MIT"
+
+[profile.dev]
+opt-level = 1
+incremental = true
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+opt-level = 3
+codegen-units = 4
+strip = true
+lto = true
+
+
+[dependencies]
+# Core dependencies (always required)
+axum = { version = "0.8", features = ["default", "http2"] }
+byte-unit = { version = "5.2", features = ["serde"] }
+ruts = "0.7"
+http = "1.4"
+http-body = "1.0"
+http-body-util = "0.1"
+humantime = "2.3"
+humantime-serde = "1.1"
+rust_decimal = "1.39"
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "2.0"
+tokio = { version = "1.48", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+toml = { version = "0.9", features = ["preserve_order"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json", "ansi"] }
+url = "2.5"
+uuid = { version = "1.19", features = ["v7", "serde"] }
+zeroize = { version = "1.8", features = ["derive"] }
+
+# tower-http base features (always needed for catch-panic, trace, timeout, request-id, fs)
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "timeout", "request-id", "fs", "catch-panic", "set-header"] }
+
+# Feature-gated dependencies - High Impact
+axum-helmet = { version = "0.2", optional = true }
+helmet-core = { version = "0.2", optional = true }
+axum-prometheus = { version = "0.9", optional = true }
+prometheus = { version = "0.14", optional = true }
+axum-metrics = { version = "0.2.0", optional = true }
+tower_governor = { version = "0.8", optional = true }
+dashmap = { version = "6.1.0", optional = true }
+
+# Required for config parsing (handlebars substitution)
+regex = "1.12"
+
+# Existing optional dependencies
+axum-keycloak-auth = { version = "0.8", features = ["rustls-tls"], optional = true }
+rustls = { version = "0.23", features = ["ring"], optional = true }
+rustls-native-certs = { version = "0.8", optional = true }
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls-ring"], optional = true }
+sqlx-postgres = { version = "0.8", features = ["rust_decimal", "time", "uuid", "json", "offline"], optional = true }
+tower-sessions = { version = "0.14", features = ["axum-core", "memory-store"], optional = true }
+tracing-opentelemetry = { version = "0.32", optional = true }
+opentelemetry = { version = "0.31", optional = true }
+opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic"], optional = true }
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"], optional = true }
+opentelemetry-semantic-conventions = { version = "0.31", optional = true }
+base64 = { version = "0.22", optional = true }
+
+# OpenAPI documentation
+utoipa = { version = "5", optional = true }
+utoipa-axum = { version = "0.2", optional = true }
+utoipa-scalar = { version = "0.3", features = ["axum"], optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.6", features = ["html_reports", "async_tokio"] }
+keycloak = "26.4"
+proptest = "1.9.0"
+reqwest = "0.12"
+testcontainers = "0.26"
+testcontainers-modules = {version="0.14", features = ["postgres"]}
+tracing-test = "0.2.5"
+
+[[bench]]
+name = "middleware_overhead"
+harness = false
+
+[features]
+default = []
+
+# Full feature set for backwards compatibility
+full = [
+    "metrics",
+    "rate-limiting",
+    "security-headers",
+    "deduplication",
+    "circuit-breaker",
+    "compression",
+    "cors",
+    "api-versioning",
+    "concurrency-limit",
+    "path-normalization",
+    "sensitive-headers",
+    "payload-limit",
+    "postgres",
+    "keycloak",
+    "opentelemetry",
+    "basic-auth",
+    "openapi",
+]
+
+# Common production setup
+production = [
+    "metrics",
+    "rate-limiting",
+    "security-headers",
+    "compression",
+    "cors",
+]
+
+# Existing features
+postgres = ["rustls", "dep:sqlx", "dep:sqlx-postgres"]
+rustls = ["dep:rustls", "dep:rustls-native-certs"]
+keycloak = ["session", "dep:axum-keycloak-auth"]
+session = ["dep:tower-sessions"]
+opentelemetry = [
+    "dep:tracing-opentelemetry",
+    "dep:opentelemetry",
+    "dep:opentelemetry-otlp",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-semantic-conventions",
+]
+basic-auth = ["dep:base64"]
+openapi = ["dep:utoipa", "dep:utoipa-axum", "dep:utoipa-scalar"]
+
+# New middleware features - High Impact
+metrics = ["dep:axum-prometheus", "dep:prometheus", "dep:axum-metrics"]
+rate-limiting = ["dep:tower_governor"]
+security-headers = ["dep:axum-helmet", "dep:helmet-core"]
+deduplication = ["dep:dashmap"]
+circuit-breaker = ["dep:dashmap"]
+
+# New middleware features - Medium Impact
+compression = ["tower-http/compression-full", "tower-http/decompression-full"]
+cors = ["tower-http/cors"]
+api-versioning = []
+
+# New middleware features - Low Impact
+concurrency-limit = ["tower/limit"]
+path-normalization = ["tower-http/normalize-path"]
+sensitive-headers = ["tower-http/sensitive-headers"]
+payload-limit = ["tower-http/limit"]
+ 

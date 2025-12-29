@@ -1,0 +1,24 @@
+[database]
+url = "{{ DATABASE_URL }}"
+max_pool_size = 2
+
+[http]
+bind_addr = "0.0.0.0"
+bind_port = 3000
+max_concurrent_requests = 4096
+max_requests_per_sec = 100
+max_payload_size_bytes = "64KiB"
+support_compression = false
+trim_trailing_slash = true
+liveness_route = "/live"
+readiness_route = "/ready"
+metrics_route = "/metrics"
+
+[http.oidc]
+issuer_url = "http://localhost:8080"
+client_id = "test"
+client_secret = "test"
+realm = "test"
+
+[logging]
+format = "json"

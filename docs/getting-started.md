@@ -32,7 +32,7 @@ edition = "2021"
 
 [dependencies]
 axum = "0.8"
-axum-conf = "0.2"
+axum-conf = "0.3"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -110,7 +110,7 @@ RUST_ENV=dev cargo run
 You should see output like:
 
 ```
-2024-01-15T10:30:00.000Z  INFO axum_conf: Starting axum-conf version 0.2.3...
+2024-01-15T10:30:00.000Z  INFO axum_conf: Starting axum-conf version 0.3.0...
 2024-01-15T10:30:00.001Z  INFO axum_conf: Bound to 127.0.0.1:3000
 2024-01-15T10:30:00.001Z  INFO axum_conf: Waiting for connections
 2024-01-15T10:30:00.001Z  INFO axum_conf: Max req/s: 100

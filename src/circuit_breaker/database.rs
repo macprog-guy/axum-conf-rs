@@ -2,7 +2,7 @@
 //!
 //! Wraps `sqlx::PgPool` to provide automatic failure tracking.
 
-use super::{guarded_call, CircuitBreakerError, CircuitBreakerRegistry};
+use super::{CircuitBreakerError, CircuitBreakerRegistry, guarded_call};
 use sqlx_postgres::PgPool;
 use std::future::Future;
 use std::sync::Arc;

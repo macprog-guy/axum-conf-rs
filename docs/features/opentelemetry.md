@@ -7,7 +7,7 @@ The `opentelemetry` feature adds distributed tracing with OTLP export to collect
 ```toml
 # Cargo.toml
 [dependencies]
-axum-conf = { version = "0.2", features = ["opentelemetry"] }
+axum-conf = { version = "0.3", features = ["opentelemetry"] }
 tracing = "0.1"
 ```
 

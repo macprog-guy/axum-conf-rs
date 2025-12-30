@@ -355,6 +355,7 @@ impl FromStr for Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[allow(unused_imports)]
     use crate::ErrorKind;
 
     #[test]

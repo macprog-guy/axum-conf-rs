@@ -130,7 +130,7 @@ where
 
     /// Returns a guarded database pool with circuit breaker protection.
     ///
-    /// The returned [`GuardedPool`] wraps the underlying database pool and
+    /// The returned [`crate::circuit_breaker::GuardedPool`] wraps the underlying database pool and
     /// tracks failures/successes for the specified target circuit breaker.
     ///
     /// # Arguments

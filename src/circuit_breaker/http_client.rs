@@ -2,7 +2,7 @@
 //!
 //! Provides a simple wrapper for making HTTP calls through a circuit breaker.
 
-use super::{guarded_call, CircuitBreakerError, CircuitBreakerRegistry};
+use super::{CircuitBreakerError, CircuitBreakerRegistry, guarded_call};
 use std::future::Future;
 use std::sync::Arc;
 
@@ -68,11 +68,7 @@ impl GuardedHttpClient {
     ///         .await
     /// }).await?;
     /// ```
-    pub async fn request<F, T, E>(
-        &self,
-        target: &str,
-        f: F,
-    ) -> Result<T, CircuitBreakerError<E>>
+    pub async fn request<F, T, E>(&self, target: &str, f: F) -> Result<T, CircuitBreakerError<E>>
     where
         F: Future<Output = Result<T, E>>,
     {
@@ -119,9 +115,8 @@ mod tests {
     async fn test_request_success() {
         let client = GuardedHttpClient::default();
 
-        let result: Result<i32, CircuitBreakerError<&str>> = client
-            .request("test-api", async { Ok(42) })
-            .await;
+        let result: Result<i32, CircuitBreakerError<&str>> =
+            client.request("test-api", async { Ok(42) }).await;
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 42);
@@ -169,9 +164,8 @@ mod tests {
         assert_eq!(breaker.current_state(), CircuitState::Open);
 
         // Next request should fail fast
-        let result: Result<i32, CircuitBreakerError<&str>> = client
-            .request("failing-api", async { Ok(42) })
-            .await;
+        let result: Result<i32, CircuitBreakerError<&str>> =
+            client.request("failing-api", async { Ok(42) }).await;
 
         assert!(result.is_err());
         assert!(result.unwrap_err().is_circuit_open());

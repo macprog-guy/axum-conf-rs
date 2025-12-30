@@ -26,8 +26,7 @@ async fn session_handler(
 #[cfg(feature = "session")]
 async fn test_memory_session_basic() {
     // Create config with memory session (default)
-    let config = Config::default()
-        .with_excluded_middlewares(vec![HttpMiddleware::RateLimiting]);    // Disable rate limiting for tests (requires ConnectInfo which isn't available in oneshot tests)
+    let config = Config::default().with_excluded_middlewares(vec![HttpMiddleware::RateLimiting]); // Disable rate limiting for tests (requires ConnectInfo which isn't available in oneshot tests)
     // Disable rate limiting for tests (oneshot() doesn't provide ConnectInfo<SocketAddr>)
 
     // Create router with session handling

@@ -7,9 +7,9 @@ The `session` feature adds cookie-based session management for server-side state
 ```toml
 # Cargo.toml
 [dependencies]
-axum-conf = { version = "0.2", features = ["session"] }
+axum-conf = { version = "0.3", features = ["session"] }
 # or implicitly via keycloak
-axum-conf = { version = "0.2", features = ["keycloak"] }
+axum-conf = { version = "0.3", features = ["keycloak"] }
 ```
 
 ## Basic Usage

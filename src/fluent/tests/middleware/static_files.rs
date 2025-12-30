@@ -1,5 +1,5 @@
-use crate::fluent::tests::{create_config_with_toml, create_test_router_with_static_files};
 use crate::StaticDirRoute;
+use crate::fluent::tests::{create_config_with_toml, create_test_router_with_static_files};
 use axum::{body::Body, http::Request};
 use tower::ServiceExt;
 

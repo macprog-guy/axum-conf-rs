@@ -126,16 +126,13 @@ where
 
 /// Re-export common utoipa types for convenience.
 pub use utoipa::{
-    OpenApi, ToSchema, ToResponse,
-    openapi::{Info, Contact, License},
+    OpenApi, ToResponse, ToSchema,
+    openapi::{Contact, Info, License},
 };
 
 /// Helper to create OpenAPI info with common defaults.
 pub fn info(title: impl Into<String>, version: impl Into<String>) -> Info {
-    Info::builder()
-        .title(title)
-        .version(version)
-        .build()
+    Info::builder().title(title).version(version).build()
 }
 
 /// Helper to create OpenAPI info with full metadata.

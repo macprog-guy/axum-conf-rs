@@ -66,7 +66,9 @@ fn try_basic_auth(
 
     // Find matching user and verify password
     for user in &config.users {
-        if user.username == username && constant_time_compare(password.as_bytes(), user.password.0.as_bytes()) {
+        if user.username == username
+            && constant_time_compare(password.as_bytes(), user.password.0.as_bytes())
+        {
             return Ok(Some(AuthenticatedIdentity {
                 method: AuthMethod::BasicAuth,
                 name: username.to_string(),
@@ -122,10 +124,9 @@ fn unauthorized_response(config: &HttpBasicAuthConfig) -> Response {
 
     // Add WWW-Authenticate header for Basic Auth
     if matches!(config.mode, BasicAuthMode::Basic | BasicAuthMode::Either) {
-        response.headers_mut().insert(
-            "WWW-Authenticate",
-            "Basic realm=\"API\"".parse().unwrap(),
-        );
+        response
+            .headers_mut()
+            .insert("WWW-Authenticate", "Basic realm=\"API\"".parse().unwrap());
     }
 
     response
@@ -133,7 +134,11 @@ fn unauthorized_response(config: &HttpBasicAuthConfig) -> Response {
 
 /// Creates a bad request response for malformed auth headers.
 fn bad_request_response() -> Response {
-    (StatusCode::BAD_REQUEST, Body::from("Invalid authentication format")).into_response()
+    (
+        StatusCode::BAD_REQUEST,
+        Body::from("Invalid authentication format"),
+    )
+        .into_response()
 }
 
 /// Basic authentication middleware function.

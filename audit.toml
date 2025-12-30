@@ -1,0 +1,4 @@
+[advisories]
+RUSTSEC-2023-0071 = {reason=["Timing sidechannels can be difficult to exploit and the RSA crate offers no fix."]}
+RUSTSEC-2024-0436 = {reason=["`paste` is a dependency of the `utoipa-axum` crate and for now we just acknowledge the potential maintenance issue."]}
+RUSTSEC-2025-0134 = {reason=["`rustls-pemfile` is a nested dependency of the `testcontainers` crate and although the crate appears unmaintained, the PEM specs are unlikely to change any time soon."]}

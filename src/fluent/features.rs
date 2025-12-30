@@ -3,11 +3,7 @@
 use super::router::FluentRouter;
 use crate::HttpMiddleware;
 
-use {
-    axum::routing::get,
-    http::StatusCode,
-    tower_http::timeout::TimeoutLayer,
-};
+use {axum::routing::get, http::StatusCode, tower_http::timeout::TimeoutLayer};
 
 #[cfg(feature = "path-normalization")]
 use tower_http::normalize_path::NormalizePathLayer;

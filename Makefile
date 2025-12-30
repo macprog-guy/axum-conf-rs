@@ -10,6 +10,9 @@ test-minimal:
 test-production:
 	cargo test --features production
 
+clippy:
+	cargo clippy --all-targets --all-features -- -D warnings
+
 docs:
 	cargo doc --no-deps --open
 

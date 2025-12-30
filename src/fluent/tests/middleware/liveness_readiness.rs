@@ -1,14 +1,16 @@
 //! Tests for liveness and readiness probe middleware setup
 
 use crate::{Config, FluentRouter, HttpMiddleware};
-use axum::{body::Body, http::{Request, StatusCode}};
+use axum::{
+    body::Body,
+    http::{Request, StatusCode},
+};
 use tower::Service;
 
 #[tokio::test]
 async fn test_liveness_readiness_individual_control() {
     // Test that liveness and readiness can be independently controlled
-    let config = Config::default()
-        .with_included_middlewares(vec![HttpMiddleware::Liveness]);    // Readiness is NOT included
+    let config = Config::default().with_included_middlewares(vec![HttpMiddleware::Liveness]); // Readiness is NOT included
 
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()

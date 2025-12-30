@@ -99,8 +99,7 @@ mod tests {
 
     #[test]
     fn test_circuit_open_error() {
-        let err: CircuitBreakerError<TestError> =
-            CircuitBreakerError::circuit_open("payment-api");
+        let err: CircuitBreakerError<TestError> = CircuitBreakerError::circuit_open("payment-api");
 
         assert!(err.is_circuit_open());
         assert!(!err.is_call_failed());
@@ -135,7 +134,8 @@ mod tests {
 
     #[test]
     fn test_map_error() {
-        let err: CircuitBreakerError<String> = CircuitBreakerError::call_failed("error".to_string());
+        let err: CircuitBreakerError<String> =
+            CircuitBreakerError::call_failed("error".to_string());
         let mapped: CircuitBreakerError<usize> = err.map(|s| s.len());
 
         match mapped {

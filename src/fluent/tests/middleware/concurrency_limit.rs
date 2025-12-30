@@ -14,7 +14,7 @@ use tower::Service;
 
 #[tokio::test]
 async fn test_setup_concurrency_limit_with_default() {
-    let config = Config::default();    // Default max_concurrent_requests is 100 in test config
+    let config = Config::default(); // Default max_concurrent_requests is 100 in test config
 
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()

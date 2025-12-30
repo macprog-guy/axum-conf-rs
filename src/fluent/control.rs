@@ -163,9 +163,7 @@ where
                     .status(StatusCode::INTERNAL_SERVER_ERROR)
                     .header(http::header::CONTENT_TYPE, "text/plain; charset=utf-8")
                     .body("Internal Server Error".to_string())
-                    .unwrap_or_else(|_| {
-                        Response::new("Internal Server Error".to_string())
-                    })
+                    .unwrap_or_else(|_| Response::new("Internal Server Error".to_string()))
             },
         ));
         self

@@ -16,7 +16,10 @@ use {axum::extract::DefaultBodyLimit, tower_http::limit::RequestBodyLimitLayer};
 use tower::limit::ConcurrencyLimitLayer;
 
 #[cfg(feature = "sensitive-headers")]
-use {http::header::AUTHORIZATION, std::iter::once, tower_http::sensitive_headers::SetSensitiveHeadersLayer};
+use {
+    http::header::AUTHORIZATION, std::iter::once,
+    tower_http::sensitive_headers::SetSensitiveHeadersLayer,
+};
 
 #[cfg(feature = "deduplication")]
 use {

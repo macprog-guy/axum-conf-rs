@@ -13,11 +13,14 @@ use crate::{Config, FluentRouter, HttpMiddleware, HttpMiddlewareConfig};
 use axum::{
     Router,
     body::Body,
-    http::{Method, Request, StatusCode},
+    http::{Request, StatusCode},
     routing::get,
 };
 use std::time::Duration;
 use tower::ServiceExt;
+
+#[allow(unused_imports)]
+use axum::http::Method;
 
 // ============================================================================
 // Request ID + CORS Interaction

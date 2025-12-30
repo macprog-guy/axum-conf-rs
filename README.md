@@ -40,7 +40,7 @@ Build Kubernetes-native Rust services without the boilerplate. axum-conf gives y
 **1. Add to Cargo.toml:**
 ```toml
 [dependencies]
-axum-conf = "0.2"
+axum-conf = "0.3"
 axum = "0.8"
 tokio = { version = "1", features = ["full"] }
 ```
@@ -115,7 +115,7 @@ Enable optional capabilities:
 
 ```toml
 # Example: Enable PostgreSQL and Keycloak
-axum-conf = { version = "0.2", features = ["postgres", "keycloak"] }
+axum-conf = { version = "0.3", features = ["postgres", "keycloak"] }
 ```
 
 ## Configuration Example

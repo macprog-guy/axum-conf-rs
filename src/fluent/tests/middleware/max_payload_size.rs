@@ -11,7 +11,7 @@ use tower::ServiceExt;
 
 #[tokio::test]
 async fn test_setup_max_payload_size_accepts_small_body() {
-    let config = Config::default();    // Default is 1KiB in test config
+    let config = Config::default(); // Default is 1KiB in test config
 
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
@@ -45,8 +45,7 @@ async fn test_setup_max_payload_size_accepts_small_body() {
 
 #[tokio::test]
 async fn test_setup_max_payload_size_rejects_large_body() {
-    let config = Config::default()
-        .with_max_payload_size_bytes(1024); // 1KiB
+    let config = Config::default().with_max_payload_size_bytes(1024); // 1KiB
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route(
@@ -76,8 +75,7 @@ async fn test_setup_max_payload_size_rejects_large_body() {
 
 #[tokio::test]
 async fn test_setup_max_payload_size_exactly_at_limit() {
-    let config = Config::default()
-        .with_max_payload_size_bytes(1024); // 1KiB
+    let config = Config::default().with_max_payload_size_bytes(1024); // 1KiB
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route(
@@ -111,8 +109,7 @@ async fn test_setup_max_payload_size_exactly_at_limit() {
 
 #[tokio::test]
 async fn test_setup_max_payload_size_one_byte_over_limit() {
-    let config = Config::default()
-        .with_max_payload_size_bytes(1024); // 1KiB
+    let config = Config::default().with_max_payload_size_bytes(1024); // 1KiB
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route(
@@ -142,8 +139,7 @@ async fn test_setup_max_payload_size_one_byte_over_limit() {
 
 #[tokio::test]
 async fn test_setup_max_payload_size_with_custom_size() {
-    let config = Config::default()
-        .with_max_payload_size_bytes(5 * 1024); // 5KiB
+    let config = Config::default().with_max_payload_size_bytes(5 * 1024); // 5KiB
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route(
@@ -209,8 +205,7 @@ async fn test_setup_max_payload_size_middleware_disabled() {
 
 #[tokio::test]
 async fn test_setup_max_payload_size_empty_body() {
-    let config = Config::default()
-        .with_max_payload_size_bytes(1024);
+    let config = Config::default().with_max_payload_size_bytes(1024);
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route(
@@ -242,8 +237,7 @@ async fn test_setup_max_payload_size_empty_body() {
 
 #[tokio::test]
 async fn test_setup_max_payload_size_multiple_routes() {
-    let config = Config::default()
-        .with_max_payload_size_bytes(1024); // 1KiB
+    let config = Config::default().with_max_payload_size_bytes(1024); // 1KiB
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
         .merge(
@@ -309,8 +303,7 @@ async fn test_setup_max_payload_size_multiple_routes() {
 
 #[tokio::test]
 async fn test_setup_max_payload_size_large_limit() {
-    let config = Config::default()
-        .with_max_payload_size_bytes(10 * 1024 * 1024); // 10MiB
+    let config = Config::default().with_max_payload_size_bytes(10 * 1024 * 1024); // 10MiB
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route(
@@ -343,8 +336,7 @@ async fn test_setup_max_payload_size_large_limit() {
 
 #[tokio::test]
 async fn test_setup_max_payload_size_binary_data() {
-    let config = Config::default()
-        .with_max_payload_size_bytes(2048); // 2KiB
+    let config = Config::default().with_max_payload_size_bytes(2048); // 2KiB
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route(

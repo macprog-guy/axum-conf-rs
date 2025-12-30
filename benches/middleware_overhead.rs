@@ -3,9 +3,9 @@
 //! These benchmarks measure the latency added by each middleware layer
 //! to help identify performance bottlenecks and track regressions.
 
-use axum::{body::Body, http::Request, routing::get, Router};
-use axum_conf::{Config, FluentRouter, HttpMiddlewareConfig, HttpMiddleware};
-use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
+use axum::{Router, body::Body, http::Request, routing::get};
+use axum_conf::{Config, FluentRouter, HttpMiddleware, HttpMiddlewareConfig};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
 use tower::ServiceExt;
 
@@ -39,11 +39,7 @@ fn bench_bare_axum(c: &mut Criterion) {
 
     c.bench_function("bare_axum", |b| {
         b.to_async(&rt).iter(|| async {
-            let response = router
-                .clone()
-                .oneshot(test_request("/"))
-                .await
-                .unwrap();
+            let response = router.clone().oneshot(test_request("/")).await.unwrap();
             black_box(response)
         })
     });
@@ -64,11 +60,7 @@ fn bench_no_middleware(c: &mut Criterion) {
 
     c.bench_function("fluent_no_middleware", |b| {
         b.to_async(&rt).iter(|| async {
-            let response = router
-                .clone()
-                .oneshot(test_request("/"))
-                .await
-                .unwrap();
+            let response = router.clone().oneshot(test_request("/")).await.unwrap();
             black_box(response)
         })
     });
@@ -94,11 +86,7 @@ fn bench_individual_middleware(c: &mut Criterion) {
 
         group.bench_function("request_id", |b| {
             b.to_async(&rt).iter(|| async {
-                let response = router
-                    .clone()
-                    .oneshot(test_request("/"))
-                    .await
-                    .unwrap();
+                let response = router.clone().oneshot(test_request("/")).await.unwrap();
                 black_box(response)
             })
         });
@@ -107,9 +95,7 @@ fn bench_individual_middleware(c: &mut Criterion) {
     // Logging only
     {
         let mut config = test_config();
-        config.http.middleware = Some(HttpMiddlewareConfig::Include(vec![
-            HttpMiddleware::Logging,
-        ]));
+        config.http.middleware = Some(HttpMiddlewareConfig::Include(vec![HttpMiddleware::Logging]));
 
         let router = FluentRouter::without_state(config)
             .unwrap()
@@ -119,11 +105,7 @@ fn bench_individual_middleware(c: &mut Criterion) {
 
         group.bench_function("logging", |b| {
             b.to_async(&rt).iter(|| async {
-                let response = router
-                    .clone()
-                    .oneshot(test_request("/"))
-                    .await
-                    .unwrap();
+                let response = router.clone().oneshot(test_request("/")).await.unwrap();
                 black_box(response)
             })
         });
@@ -133,9 +115,7 @@ fn bench_individual_middleware(c: &mut Criterion) {
     {
         let mut config = test_config();
         config.http.request_timeout = Some(std::time::Duration::from_secs(30));
-        config.http.middleware = Some(HttpMiddlewareConfig::Include(vec![
-            HttpMiddleware::Timeout,
-        ]));
+        config.http.middleware = Some(HttpMiddlewareConfig::Include(vec![HttpMiddleware::Timeout]));
 
         let router = FluentRouter::without_state(config)
             .unwrap()
@@ -145,11 +125,7 @@ fn bench_individual_middleware(c: &mut Criterion) {
 
         group.bench_function("timeout", |b| {
             b.to_async(&rt).iter(|| async {
-                let response = router
-                    .clone()
-                    .oneshot(test_request("/"))
-                    .await
-                    .unwrap();
+                let response = router.clone().oneshot(test_request("/")).await.unwrap();
                 black_box(response)
             })
         });
@@ -170,11 +146,7 @@ fn bench_individual_middleware(c: &mut Criterion) {
 
         group.bench_function("catch_panic", |b| {
             b.to_async(&rt).iter(|| async {
-                let response = router
-                    .clone()
-                    .oneshot(test_request("/"))
-                    .await
-                    .unwrap();
+                let response = router.clone().oneshot(test_request("/")).await.unwrap();
                 black_box(response)
             })
         });
@@ -192,9 +164,7 @@ fn bench_cors(c: &mut Criterion) {
 
     let mut config = test_config();
     config.http.cors = Some(HttpCorsConfig::default());
-    config.http.middleware = Some(HttpMiddlewareConfig::Include(vec![
-        HttpMiddleware::Cors,
-    ]));
+    config.http.middleware = Some(HttpMiddlewareConfig::Include(vec![HttpMiddleware::Cors]));
 
     let router = FluentRouter::without_state(config)
         .unwrap()
@@ -204,11 +174,7 @@ fn bench_cors(c: &mut Criterion) {
 
     c.bench_function("cors", |b| {
         b.to_async(&rt).iter(|| async {
-            let response = router
-                .clone()
-                .oneshot(test_request("/"))
-                .await
-                .unwrap();
+            let response = router.clone().oneshot(test_request("/")).await.unwrap();
             black_box(response)
         })
     });
@@ -231,11 +197,7 @@ fn bench_helmet(c: &mut Criterion) {
 
     c.bench_function("helmet", |b| {
         b.to_async(&rt).iter(|| async {
-            let response = router
-                .clone()
-                .oneshot(test_request("/"))
-                .await
-                .unwrap();
+            let response = router.clone().oneshot(test_request("/")).await.unwrap();
             black_box(response)
         })
     });
@@ -259,11 +221,7 @@ fn bench_compression(c: &mut Criterion) {
 
     c.bench_function("compression", |b| {
         b.to_async(&rt).iter(|| async {
-            let response = router
-                .clone()
-                .oneshot(test_request("/"))
-                .await
-                .unwrap();
+            let response = router.clone().oneshot(test_request("/")).await.unwrap();
             black_box(response)
         })
     });
@@ -289,11 +247,7 @@ fn bench_middleware_stack_scaling(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("layers", 1), &router, |b, router| {
             b.to_async(&rt).iter(|| async {
-                let response = router
-                    .clone()
-                    .oneshot(test_request("/"))
-                    .await
-                    .unwrap();
+                let response = router.clone().oneshot(test_request("/")).await.unwrap();
                 black_box(response)
             })
         });
@@ -319,11 +273,7 @@ fn bench_middleware_stack_scaling(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("layers", 3), &router, |b, router| {
             b.to_async(&rt).iter(|| async {
-                let response = router
-                    .clone()
-                    .oneshot(test_request("/"))
-                    .await
-                    .unwrap();
+                let response = router.clone().oneshot(test_request("/")).await.unwrap();
                 black_box(response)
             })
         });
@@ -353,11 +303,7 @@ fn bench_middleware_stack_scaling(c: &mut Criterion) {
 
         group.bench_with_input(BenchmarkId::new("layers", 5), &router, |b, router| {
             b.to_async(&rt).iter(|| async {
-                let response = router
-                    .clone()
-                    .oneshot(test_request("/"))
-                    .await
-                    .unwrap();
+                let response = router.clone().oneshot(test_request("/")).await.unwrap();
                 black_box(response)
             })
         });
@@ -376,16 +322,23 @@ criterion_group!(
 );
 
 // Feature-gated benchmarks need separate groups and conditional main
-#[cfg(all(feature = "cors", feature = "security-headers", feature = "compression"))]
-criterion_group!(
-    feature_benches,
-    bench_cors,
-    bench_helmet,
-    bench_compression,
-);
+#[cfg(all(
+    feature = "cors",
+    feature = "security-headers",
+    feature = "compression"
+))]
+criterion_group!(feature_benches, bench_cors, bench_helmet, bench_compression,);
 
-#[cfg(all(feature = "cors", feature = "security-headers", feature = "compression"))]
+#[cfg(all(
+    feature = "cors",
+    feature = "security-headers",
+    feature = "compression"
+))]
 criterion_main!(benches, feature_benches);
 
-#[cfg(not(all(feature = "cors", feature = "security-headers", feature = "compression")))]
+#[cfg(not(all(
+    feature = "cors",
+    feature = "security-headers",
+    feature = "compression"
+)))]
 criterion_main!(benches);

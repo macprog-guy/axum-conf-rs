@@ -12,7 +12,8 @@ use tower::Service;
 #[tokio::test]
 async fn test_setup_helmet_with_defaults() {
     // Default config should include X-Content-Type-Options: nosniff and X-Frame-Options: DENY
-    let config = Config::default();    let fluent_router = FluentRouter::without_state(config)
+    let config = Config::default();
+    let fluent_router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route("/test", get(|| async { "OK" })))
         .setup_helmet();
@@ -107,7 +108,7 @@ async fn test_setup_helmet_x_frame_options_allow_from() {
 async fn test_setup_helmet_both_headers_disabled() {
     let config = Config::default()
         .with_x_content_type_nosniff(false)
-        .with_x_frame_options(HttpXFrameConfig::same_origin());    // Set X-Frame-Options to a value, but since helmet always adds it, we check it's present
+        .with_x_frame_options(HttpXFrameConfig::same_origin()); // Set X-Frame-Options to a value, but since helmet always adds it, we check it's present
 
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()

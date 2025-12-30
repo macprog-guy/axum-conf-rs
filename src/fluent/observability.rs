@@ -3,11 +3,7 @@
 use super::router::FluentRouter;
 use crate::HttpMiddleware;
 
-use {
-    axum::body::Body,
-    http::Request,
-    tower_http::trace::TraceLayer as TowerHTTPLayer,
-};
+use {axum::body::Body, http::Request, tower_http::trace::TraceLayer as TowerHTTPLayer};
 
 #[cfg(feature = "metrics")]
 use axum_prometheus::PrometheusMetricLayerBuilder;
@@ -69,7 +65,10 @@ where
 
             self.inner = self
                 .inner
-                .route(metrics_path, axum::routing::get(|| async move { metrics_handle.render() }))
+                .route(
+                    metrics_path,
+                    axum::routing::get(|| async move { metrics_handle.render() }),
+                )
                 .layer(prometheus_layer);
         }
         self

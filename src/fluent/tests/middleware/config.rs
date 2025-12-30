@@ -141,8 +141,7 @@ async fn test_sensitive_headers_disabled_path() {
 #[tokio::test]
 async fn test_helmet_disabled_path() {
     // Test the early return path when security headers are disabled
-    let config =
-        Config::default().with_excluded_middlewares(vec![HttpMiddleware::SecurityHeaders]);
+    let config = Config::default().with_excluded_middlewares(vec![HttpMiddleware::SecurityHeaders]);
 
     let mut app = FluentRouter::without_state(config)
         .unwrap()

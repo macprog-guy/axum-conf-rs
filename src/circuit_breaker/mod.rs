@@ -197,11 +197,12 @@ mod tests {
         };
         let breaker = Arc::new(CircuitBreakerState::new(config));
 
-        let result: Result<i32, CircuitBreakerError<&str>> = guarded_call(&breaker, "test", async {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            Ok(42)
-        })
-        .await;
+        let result: Result<i32, CircuitBreakerError<&str>> =
+            guarded_call(&breaker, "test", async {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                Ok(42)
+            })
+            .await;
 
         assert!(result.is_err());
         assert!(result.unwrap_err().is_timeout());

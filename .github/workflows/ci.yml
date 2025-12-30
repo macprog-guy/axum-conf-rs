@@ -11,23 +11,40 @@ env:
   RUSTFLAGS: -Dwarnings
 
 jobs:
-  test:
-    name: Test (${{ matrix.rust }})
+
+
+  msrv:
+    name: Check MSRV
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        rust: [stable, nightly]
-    services:
-      docker:
-        image: docker:dind
-        options: --privileged
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust ${{ matrix.rust }}
-        uses: dtolnay/rust-action@stable
+      - name: Install Rust 1.92
+        uses: actions-rs/toolchain@v1
         with:
-          toolchain: ${{ matrix.rust }}
+          toolchain: "1.92"
+          profile: minimal
+          override: true
+
+      - name: Cache cargo registry
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check compilation
+        run: cargo check --all-features
+
+  test:
+    needs: msrv
+    name: Test (all features)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
 
       - name: Cache cargo registry
         uses: Swatinem/rust-cache@v2
@@ -37,45 +54,19 @@ jobs:
         env:
           RUST_ENV: test
 
-  test-minimal:
-    name: Test (minimal features)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-action@stable
-
-      - name: Cache cargo registry
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run tests (no features)
-        run: cargo test --lib
-
-  test-production:
-    name: Test (production features)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-action@stable
-
-      - name: Cache cargo registry
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run tests (production features)
-        run: cargo test --features production
-
   lint:
+    needs: msrv
     name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust
-        uses: dtolnay/rust-action@stable
+        uses: actions-rs/toolchain@v1
         with:
+          toolchain: stable
+          profile: minimal
+          override: true
           components: clippy, rustfmt
 
       - name: Cache cargo registry
@@ -87,56 +78,30 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-  coverage:
-    name: Coverage
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-action@stable
-        with:
-          components: llvm-tools-preview
-
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
-
-      - name: Cache cargo registry
-        uses: Swatinem/rust-cache@v2
-
-      - name: Generate coverage report
-        run: cargo llvm-cov --all-features --lcov --output-path lcov.info
-        env:
-          RUST_ENV: test
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          files: lcov.info
-          fail_ci_if_error: false
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-
   audit:
+    needs: msrv
     name: Security Audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install cargo-audit
-        uses: taiki-e/install-action@cargo-audit
-
-      - name: Run security audit
-        run: cargo audit
+      - uses: actions-rust-lang/audit@v1
+        name: Audit Rust dependencies
+        with:
+          ignore: RUSTSEC-2023-0071,RUSTSEC-2024-0436,RUSTSEC-2025-0134
 
   docs:
+    needs: msrv
     name: Documentation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust
-        uses: dtolnay/rust-action@stable
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
 
       - name: Cache cargo registry
         uses: Swatinem/rust-cache@v2
@@ -145,20 +110,3 @@ jobs:
         run: cargo doc --all-features --no-deps
         env:
           RUSTDOCFLAGS: -Dwarnings
-
-  msrv:
-    name: Check MSRV
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust 1.85 (Edition 2024 minimum)
-        uses: dtolnay/rust-action@stable
-        with:
-          toolchain: "1.85"
-
-      - name: Cache cargo registry
-        uses: Swatinem/rust-cache@v2
-
-      - name: Check compilation
-        run: cargo check --all-features

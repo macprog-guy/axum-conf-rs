@@ -4,8 +4,8 @@
 //! state transitions between Closed, Open, and HalfOpen states.
 
 use crate::config::CircuitBreakerTargetConfig;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Instant;
 
 /// Circuit breaker state: Closed (normal), Open (failing), HalfOpen (probing).

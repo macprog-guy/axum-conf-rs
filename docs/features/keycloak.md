@@ -7,7 +7,7 @@ The `keycloak` feature adds OpenID Connect (OIDC) authentication with JWT valida
 ```toml
 # Cargo.toml
 [dependencies]
-axum-conf = { version = "0.2", features = ["keycloak"] }
+axum-conf = { version = "0.3", features = ["keycloak"] }
 ```
 
 ## Configuration

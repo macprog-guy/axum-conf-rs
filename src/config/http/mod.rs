@@ -1,23 +1,23 @@
+#[cfg(feature = "basic-auth")]
+mod basic_auth;
+#[cfg(feature = "circuit-breaker")]
+mod circuit_breaker;
 mod cors;
 mod dedup;
 mod middleware;
 mod oidc;
 mod staticdir;
-#[cfg(feature = "basic-auth")]
-mod basic_auth;
-#[cfg(feature = "circuit-breaker")]
-mod circuit_breaker;
 
+#[cfg(feature = "basic-auth")]
+pub use basic_auth::*;
+#[cfg(feature = "circuit-breaker")]
+pub use circuit_breaker::*;
 pub use cors::*;
 pub use dedup::*;
 pub use middleware::*;
 #[cfg(feature = "keycloak")]
 pub use oidc::*;
 pub use staticdir::*;
-#[cfg(feature = "basic-auth")]
-pub use basic_auth::*;
-#[cfg(feature = "circuit-breaker")]
-pub use circuit_breaker::*;
 
 use {crate::Result, serde::Deserialize, std::fmt, std::time::Duration};
 

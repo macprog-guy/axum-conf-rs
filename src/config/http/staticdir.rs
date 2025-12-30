@@ -325,7 +325,10 @@ mod tests {
             config.http.directories[0].validate().is_ok(),
             "Exactly 1 year (31536000 seconds) should be valid"
         );
-        assert_eq!(config.http.directories[0].cache_max_age, Some(MAX_CACHE_AGE_SECONDS));
+        assert_eq!(
+            config.http.directories[0].cache_max_age,
+            Some(MAX_CACHE_AGE_SECONDS)
+        );
     }
 
     #[test]
@@ -387,10 +390,7 @@ mod tests {
 
         let config: Config = config_str.parse().unwrap();
         let result = config.http.directories[0].validate();
-        assert!(
-            result.is_err(),
-            "u64::MAX should fail validation"
-        );
+        assert!(result.is_err(), "u64::MAX should fail validation");
     }
 
     #[test]

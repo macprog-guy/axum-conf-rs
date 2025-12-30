@@ -86,10 +86,8 @@ mod tests {
 
     #[test]
     fn test_is_enabled_include() {
-        let config = HttpMiddlewareConfig::Include(vec![
-            HttpMiddleware::Logging,
-            HttpMiddleware::Metrics,
-        ]);
+        let config =
+            HttpMiddlewareConfig::Include(vec![HttpMiddleware::Logging, HttpMiddleware::Metrics]);
         assert!(config.is_enabled(HttpMiddleware::Logging));
         assert!(config.is_enabled(HttpMiddleware::Metrics));
         assert!(!config.is_enabled(HttpMiddleware::Cors));
@@ -111,7 +109,11 @@ mod tests {
         let result = config.validate();
         assert!(result.is_err());
         let error = result.unwrap_err();
-        assert!(error.to_string().contains("RequestDeduplication requires RequestId"));
+        assert!(
+            error
+                .to_string()
+                .contains("RequestDeduplication requires RequestId")
+        );
     }
 
     #[test]
@@ -187,10 +189,8 @@ mod tests {
     #[test]
     fn test_validate_include_oidc_with_session_succeeds() {
         // Include both - should work
-        let config = HttpMiddlewareConfig::Include(vec![
-            HttpMiddleware::Oidc,
-            HttpMiddleware::Session,
-        ]);
+        let config =
+            HttpMiddlewareConfig::Include(vec![HttpMiddleware::Oidc, HttpMiddleware::Session]);
         let result = config.validate();
         assert!(result.is_ok());
     }

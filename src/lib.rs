@@ -75,8 +75,8 @@
 //! |--------|-------------|
 //! | [`config`] | Configuration loading and validation ([`Config`]) |
 //! | [`fluent`] | Router builder and middleware setup ([`FluentRouter`]) |
-//! | [`error`] | Error types and handling ([`Error`]) |
-//! | [`utils`] | Utilities ([`ApiVersion`], [`Sensitive`]) |
+//! | `error` | Error types and handling ([`Error`]) |
+//! | `utils` | Utilities ([`ApiVersion`], [`Sensitive`]) |
 //!
 //! # Configuration
 //!
@@ -185,9 +185,9 @@
 //! ```
 //!
 //! See [Middleware Overview](../docs/middleware/overview.md) for the full stack.
-mod config;
+pub mod config;
 mod error;
-mod fluent;
+pub mod fluent;
 mod utils;
 
 #[cfg(feature = "circuit-breaker")]

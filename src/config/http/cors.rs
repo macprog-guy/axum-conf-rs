@@ -69,7 +69,7 @@ impl HttpCorsConfig {
     /// # Example
     ///
     /// ```rust
-    /// use axum_conf::config::http::HttpCorsConfig;
+    /// use axum_conf::config::HttpCorsConfig;
     ///
     /// let cors = HttpCorsConfig::default()
     ///     .with_allow_credentials()
@@ -92,7 +92,7 @@ impl HttpCorsConfig {
     /// # Example
     ///
     /// ```rust
-    /// use axum_conf::config::http::HttpCorsConfig;
+    /// use axum_conf::config::HttpCorsConfig;
     ///
     /// let cors = HttpCorsConfig::default()
     ///     .with_allowed_origins(vec![

@@ -62,7 +62,7 @@ impl HttpDeduplicationConfig {
     /// # Example
     ///
     /// ```rust
-    /// use axum_conf::config::http::HttpDeduplicationConfig;
+    /// use axum_conf::config::HttpDeduplicationConfig;
     /// use std::time::Duration;
     ///
     /// let config = HttpDeduplicationConfig::default()
@@ -85,7 +85,7 @@ impl HttpDeduplicationConfig {
     /// # Example
     ///
     /// ```rust
-    /// use axum_conf::config::http::HttpDeduplicationConfig;
+    /// use axum_conf::config::HttpDeduplicationConfig;
     ///
     /// let config = HttpDeduplicationConfig::default()
     ///     .with_max_entries(50000); // Support 50k concurrent request IDs

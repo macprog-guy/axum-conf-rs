@@ -1,12 +1,54 @@
+//! OIDC/Keycloak authentication configuration.
+//!
+//! This module provides configuration for OpenID Connect (OIDC) authentication,
+//! designed for use with Keycloak but compatible with other OIDC providers.
+//!
+//! # Feature Flag
+//!
+//! This module is always available, but the OIDC middleware is only enabled
+//! with the `keycloak` feature flag.
+//!
+//! # Example
+//!
+//! ```toml
+//! [http.oidc]
+//! issuer_url = "https://keycloak.example.com"
+//! realm = "my-realm"
+//! client_id = "my-app"
+//! client_secret = "{{ OIDC_CLIENT_SECRET }}"
+//! audiences = ["my-app", "api"]
+//! ```
+//!
+//! # Important
+//!
+//! OIDC authentication cannot be used together with Basic Auth (`basic-auth` feature).
+//! Choose one authentication method per application.
+
 use crate::{Error, Result, utils::Sensitive};
 use serde::Deserialize;
 
+/// Configuration for OIDC (OpenID Connect) authentication.
 ///
-/// Configuration for OIDC authentication.
+/// Used to configure authentication against an OIDC provider like Keycloak.
+/// All fields are required except `audiences` which defaults to an empty list.
 ///
-/// The default value for issuer_url depends on the RUST_ENV environment
-/// variable and will be valid for a PCO deployment.
+/// # Required Configuration
 ///
+/// - `issuer_url` - Base URL of the OIDC provider (e.g., `https://keycloak.example.com`)
+/// - `realm` - The OIDC realm/tenant name
+/// - `client_id` - OAuth2 client ID for this application
+/// - `client_secret` - OAuth2 client secret (use environment variable substitution)
+///
+/// # Example
+///
+/// ```toml
+/// [http.oidc]
+/// issuer_url = "https://keycloak.example.com"
+/// realm = "production"
+/// client_id = "my-service"
+/// client_secret = "{{ OIDC_CLIENT_SECRET }}"
+/// audiences = ["my-service"]
+/// ```
 #[allow(unused)]
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct HttpOidcConfig {

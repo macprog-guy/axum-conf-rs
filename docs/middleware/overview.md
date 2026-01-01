@@ -186,6 +186,232 @@ include = [
 | `session` | Cookie sessions | Enabled if feature on |
 | `opentelemetry` | Distributed tracing | Enabled if configured |
 
+## Static File Serving
+
+axum-conf includes built-in static file serving for assets, SPAs, and protected downloads. Static files are served *inside* the middleware stack, so they benefit from logging, metrics, compression, and security headers.
+
+### Basic Configuration
+
+```toml
+# Serve public assets at /static/*
+[[http.directories]]
+directory = "./public"
+route = "/static"
+
+# SPA fallback - serve index.html for unmatched routes
+[[http.directories]]
+directory = "./dist"
+fallback = true
+```
+
+### Protected Directories
+
+Serve files that require authentication (requires `keycloak` feature):
+
+```toml
+[[http.directories]]
+directory = "./downloads"
+route = "/downloads"
+protected = true
+```
+
+### Caching
+
+Add Cache-Control headers for better performance:
+
+```toml
+[[http.directories]]
+directory = "./assets"
+route = "/assets"
+cache_max_age = 86400  # 1 day in seconds
+```
+
+### Features
+
+- **Pre-compressed content**: Automatically serves `.br` and `.gz` files when available
+- **Index files**: Serves `index.html` for directory requests
+- **Protected directories**: Require OIDC authentication (cannot be used with fallback)
+- **Cache headers**: Configurable Cache-Control max-age
+
+> **Note**: Fallback directories cannot be protected. Only one fallback directory is allowed per application.
+
+### Pre-Compressed Files
+
+axum-conf uses `tower-http`'s `ServeDir` which automatically serves pre-compressed files when:
+1. The client sends an `Accept-Encoding` header with `br` or `gzip`
+2. A corresponding `.br` or `.gz` file exists
+
+#### Creating Pre-Compressed Assets
+
+Use your build pipeline to generate compressed versions:
+
+```bash
+# Brotli compression (best for web)
+find ./dist -type f \( -name "*.js" -o -name "*.css" -o -name "*.html" -o -name "*.svg" \) \
+    -exec brotli -f {} \;
+
+# Gzip fallback
+find ./dist -type f \( -name "*.js" -o -name "*.css" -o -name "*.html" -o -name "*.svg" \) \
+    -exec gzip -kf {} \;
+```
+
+Result:
+```
+dist/
+├── app.js
+├── app.js.br      # Served when Accept-Encoding: br
+├── app.js.gz      # Served when Accept-Encoding: gzip
+├── styles.css
+├── styles.css.br
+└── styles.css.gz
+```
+
+#### Why Pre-Compress?
+
+| Approach | CPU Usage | Latency | Best For |
+|----------|-----------|---------|----------|
+| Dynamic compression | High | Higher | Changing content |
+| Pre-compressed | None | Lowest | Static assets |
+
+Pre-compression is ideal for production deployments where assets don't change at runtime.
+
+### Caching Strategies
+
+#### Immutable Assets (Hashed Filenames)
+
+For files with content hashes in names (e.g., `app.a1b2c3.js`):
+
+```toml
+[[http.directories]]
+directory = "./dist/assets"
+route = "/assets"
+cache_max_age = 31536000  # 1 year
+```
+
+These can be cached forever because the filename changes when content changes.
+
+#### Versioned Assets
+
+For files that may change between deployments:
+
+```toml
+[[http.directories]]
+directory = "./dist"
+route = "/static"
+cache_max_age = 86400  # 1 day
+```
+
+#### No-Cache for HTML
+
+HTML files should typically not be cached so users get the latest version:
+
+```toml
+# Note: cache_max_age = 0 tells browsers to revalidate
+[[http.directories]]
+directory = "./dist"
+fallback = true
+# cache_max_age not set = no Cache-Control header
+```
+
+### SPA Configuration
+
+For single-page applications with client-side routing:
+
+```toml
+# Static assets with long cache
+[[http.directories]]
+directory = "./dist/assets"
+route = "/assets"
+cache_max_age = 31536000
+
+# SPA fallback - serves index.html for all unmatched routes
+[[http.directories]]
+directory = "./dist"
+fallback = true
+```
+
+When a user navigates to `/dashboard`:
+1. No `/dashboard` route in your API
+2. Fallback directory serves `dist/index.html`
+3. Client-side router handles the route
+
+### CDN Integration
+
+When using a CDN (CloudFront, Cloudflare, etc.):
+
+```toml
+[[http.directories]]
+directory = "./dist/assets"
+route = "/assets"
+cache_max_age = 31536000  # CDN caches for 1 year
+```
+
+Configure your CDN to:
+1. **Cache based on `Accept-Encoding`** - Vary responses by encoding
+2. **Pass through `Cache-Control`** - Honor max-age headers
+3. **Strip cookies** - Static files don't need cookies
+
+Example CloudFront behavior:
+- **Path Pattern**: `/assets/*`
+- **Cache Policy**: CachingOptimized
+- **Origin Request Policy**: CORS-S3Origin (if needed)
+
+### Multiple Directory Example
+
+A complete production setup:
+
+```toml
+# API routes handle /api/* (defined in code)
+
+# Hashed assets - cache forever
+[[http.directories]]
+directory = "./dist/assets"
+route = "/assets"
+cache_max_age = 31536000
+
+# Fonts - cache for 1 year
+[[http.directories]]
+directory = "./fonts"
+route = "/fonts"
+cache_max_age = 31536000
+
+# Protected downloads - require auth
+[[http.directories]]
+directory = "./downloads"
+route = "/downloads"
+protected = true
+
+# SPA fallback - no cache
+[[http.directories]]
+directory = "./dist"
+fallback = true
+```
+
+### Performance Tips
+
+1. **Pre-compress all text assets** - HTML, CSS, JS, SVG, JSON
+2. **Use content hashes** - Enable aggressive caching
+3. **Set appropriate max-age** - Balance freshness vs. performance
+4. **Don't compress images** - JPEG, PNG, WebP are already compressed
+5. **Use a CDN** - Serve static files from edge locations
+
+### Troubleshooting
+
+**Files not being served:**
+- Check the `directory` path is correct (relative to working directory)
+- Ensure files have read permissions
+- Look for errors in startup logs
+
+**Compression not working:**
+- Verify `.br`/`.gz` files exist alongside originals
+- Check `Accept-Encoding` header is being sent
+- Enable the `compression` feature if using dynamic compression
+
+**Cache not working:**
+- Verify `cache_max_age` is set
+- Check browser DevTools Network tab for Cache-Control header
+- Clear browser cache for testing
+
 ## Manual Middleware Setup
 
 For complete control, call individual `setup_*` methods:

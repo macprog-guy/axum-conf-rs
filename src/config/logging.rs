@@ -26,12 +26,40 @@ impl LoggingConfig {
     }
 }
 
+/// Log output format.
+///
+/// Determines how log messages are formatted for output.
+///
+/// # TOML Values
+///
+/// Use lowercase names in configuration: `json`, `default`, `compact`, `pretty`.
+///
+/// # Example
+///
+/// ```toml
+/// [logging]
+/// format = "json"  # Recommended for production
+/// ```
 #[derive(Debug, Clone, Copy, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum LogFormat {
+    /// JSON format - structured logs ideal for log aggregation systems.
+    /// Each log entry is a single JSON object with fields like `timestamp`, `level`, `message`, `target`.
+    /// Recommended for production environments with centralized logging (ELK, Splunk, etc.).
     Json,
+
+    /// Default human-readable format with full details.
+    /// Includes timestamp, level, target, and message with colors (when supported).
+    /// Best for development and debugging.
     #[default]
     Default,
+
+    /// Compact single-line format.
+    /// Shows level and message only, useful when space is limited.
     Compact,
+
+    /// Pretty multi-line format with indentation.
+    /// Similar to default but with better readability for complex log entries.
+    /// Useful for development when examining detailed logs.
     Pretty,
 }

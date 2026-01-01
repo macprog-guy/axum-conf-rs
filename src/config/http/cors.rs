@@ -61,26 +61,97 @@ pub struct HttpCorsConfig {
 }
 
 impl HttpCorsConfig {
+    /// Enables credentials (cookies, authorization headers) in CORS requests.
+    ///
+    /// When credentials are enabled, you cannot use wildcard (`*`) values for
+    /// origins, methods, or headers. You must explicitly specify allowed values.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use axum_conf::config::http::HttpCorsConfig;
+    ///
+    /// let cors = HttpCorsConfig::default()
+    ///     .with_allow_credentials()
+    ///     .with_allowed_origins(vec!["https://app.example.com".into()]);
+    /// ```
     pub fn with_allow_credentials(mut self) -> Self {
         self.allow_credentials = Some(true);
         self
     }
+
+    /// Sets the list of origins allowed to make CORS requests.
+    ///
+    /// Origins should be full URLs including the scheme (e.g., `https://example.com`).
+    /// If not set, all origins are allowed (wildcard behavior).
+    ///
+    /// # Arguments
+    ///
+    /// * `origins` - List of allowed origin URLs
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use axum_conf::config::http::HttpCorsConfig;
+    ///
+    /// let cors = HttpCorsConfig::default()
+    ///     .with_allowed_origins(vec![
+    ///         "https://app.example.com".into(),
+    ///         "https://admin.example.com".into(),
+    ///     ]);
+    /// ```
     pub fn with_allowed_origins(mut self, origins: Vec<String>) -> Self {
         self.allowed_origins = Some(origins);
         self
     }
+
+    /// Sets the HTTP methods allowed in CORS requests.
+    ///
+    /// Common methods include GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS.
+    /// If not set, all standard methods are allowed.
+    ///
+    /// # Arguments
+    ///
+    /// * `methods` - List of allowed HTTP methods
     pub fn with_allowed_methods(mut self, methods: Vec<CorsMethod>) -> Self {
         self.allowed_methods = Some(methods);
         self
     }
+
+    /// Sets the headers allowed in CORS requests.
+    ///
+    /// Common headers include `content-type`, `authorization`, `x-api-key`.
+    /// If not set, common headers are allowed by default.
+    ///
+    /// # Arguments
+    ///
+    /// * `headers` - List of allowed request headers
     pub fn with_allowed_headers(mut self, headers: Vec<CorsHeader>) -> Self {
         self.allowed_headers = Some(headers);
         self
     }
+
+    /// Sets the headers exposed to the browser in CORS responses.
+    ///
+    /// By default, browsers can only access a limited set of response headers.
+    /// Use this to expose additional headers like `x-request-id` or `x-ratelimit-remaining`.
+    ///
+    /// # Arguments
+    ///
+    /// * `headers` - List of headers to expose to the browser
     pub fn with_exposed_headers(mut self, headers: Vec<CorsHeader>) -> Self {
         self.exposed_headers = Some(headers);
         self
     }
+
+    /// Sets the maximum time browsers should cache CORS preflight responses.
+    ///
+    /// Longer cache times reduce the number of preflight requests, improving performance.
+    /// A typical value is 1 hour (`Duration::from_secs(3600)`).
+    ///
+    /// # Arguments
+    ///
+    /// * `max_age` - Duration to cache preflight responses
     pub fn with_max_age(mut self, max_age: Duration) -> Self {
         self.max_age = Some(max_age);
         self

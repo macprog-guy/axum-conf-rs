@@ -4,13 +4,49 @@ use crate::Result;
 use crate::Error;
 use serde::Deserialize;
 
+/// Configuration for which middleware to enable or disable.
+///
+/// By default, all middleware are enabled. Use this to selectively include or exclude
+/// specific middleware from the stack.
+///
+/// # Variants
+///
+/// - `Include` - Only enable the specified middleware (whitelist approach)
+/// - `Exclude` - Enable all middleware except those specified (blacklist approach)
+///
+/// # Examples
+///
+/// In TOML configuration:
+/// ```toml
+/// # Exclude specific middleware
+/// [http.middleware]
+/// exclude = ["rate-limiting", "metrics"]
+///
+/// # Or include only specific middleware
+/// [http.middleware]
+/// include = ["logging", "cors", "liveness", "readiness"]
+/// ```
 #[derive(Debug, Clone, Deserialize)]
 pub enum HttpMiddlewareConfig {
+    /// Only enable the middleware in this list. All others will be disabled.
     Include(Vec<HttpMiddleware>),
+    /// Enable all middleware except those in this list.
     Exclude(Vec<HttpMiddleware>),
 }
 
 impl HttpMiddlewareConfig {
+    /// Checks if a specific middleware is enabled based on this configuration.
+    ///
+    /// For `Include` configs, returns `true` if the middleware is in the list.
+    /// For `Exclude` configs, returns `true` if the middleware is NOT in the list.
+    ///
+    /// # Arguments
+    ///
+    /// * `middleware` - The middleware to check
+    ///
+    /// # Returns
+    ///
+    /// `true` if the middleware should be enabled, `false` otherwise.
     pub fn is_enabled(&self, middleware: HttpMiddleware) -> bool {
         match self {
             HttpMiddlewareConfig::Include(list) => list.contains(&middleware),
@@ -51,31 +87,127 @@ impl HttpMiddlewareConfig {
     }
 }
 
+/// Available middleware that can be enabled or disabled in the HTTP stack.
+///
+/// These middleware are applied in a specific order (see [`crate::fluent::FluentRouter::setup_middleware`]).
+/// Use [`HttpMiddlewareConfig`] to include or exclude specific middleware.
+///
+/// # TOML Names
+///
+/// In configuration files, use kebab-case names (e.g., `rate-limiting`, `catch-panic`).
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum HttpMiddleware {
+    /// OIDC/Keycloak authentication middleware.
+    /// Validates JWT tokens and extracts user information.
+    /// Requires the `keycloak` feature and `Session` middleware.
     Oidc,
+
+    /// HTTP Basic Authentication and API key middleware.
+    /// Requires the `basic-auth` feature.
+    /// Cannot be used together with `Oidc`.
     #[cfg(feature = "basic-auth")]
     BasicAuth,
+
+    /// Request deduplication middleware.
+    /// Prevents duplicate processing of requests with the same request ID.
+    /// Requires `RequestId` middleware to be enabled.
+    /// Requires the `deduplication` feature.
     RequestDeduplication,
+
+    /// Rate limiting middleware.
+    /// Limits requests per IP address to prevent abuse.
+    /// Configured via `http.max_requests_per_sec` in TOML.
+    /// Requires the `rate-limiting` feature.
     RateLimiting,
+
+    /// Concurrency limit middleware.
+    /// Limits the maximum number of concurrent requests.
+    /// Configured via `http.max_concurrent_requests` in TOML.
+    /// Requires the `concurrency-limit` feature.
     ConcurrencyLimit,
+
+    /// Request payload size limit middleware.
+    /// Rejects requests exceeding the configured body size.
+    /// Configured via `http.max_payload_size_bytes` in TOML.
+    /// Requires the `payload-limit` feature.
     MaxPayloadSize,
+
+    /// Response compression middleware.
+    /// Compresses responses using gzip, brotli, deflate, or zstd.
+    /// Requires the `compression` feature.
     Compression,
+
+    /// Path normalization middleware.
+    /// Normalizes URL paths by handling trailing slashes consistently.
+    /// Requires the `path-normalization` feature.
     PathNormalization,
+
+    /// Sensitive header redaction middleware.
+    /// Redacts sensitive headers (like Authorization) from logs.
+    /// Requires the `sensitive-headers` feature.
     SensitiveHeaders,
+
+    /// Request ID middleware.
+    /// Adds a unique UUIDv7 identifier to each request.
+    /// The ID is available via the `x-request-id` header.
     RequestId,
+
+    /// API versioning middleware.
+    /// Extracts API version from path, header, or query parameter.
+    /// Requires the `api-versioning` feature.
     ApiVersioning,
+
+    /// CORS (Cross-Origin Resource Sharing) middleware.
+    /// Handles preflight requests and adds CORS headers.
+    /// Configured via `http.cors` in TOML.
+    /// Requires the `cors` feature.
     Cors,
+
+    /// Security headers middleware.
+    /// Adds security headers like X-Frame-Options, X-Content-Type-Options.
+    /// Requires the `security-headers` feature.
     SecurityHeaders,
+
+    /// Request/response logging middleware.
+    /// Logs request method, path, status, and duration.
+    /// Uses the configured log format (JSON, compact, etc.).
     Logging,
+
+    /// Prometheus metrics middleware.
+    /// Exposes metrics at the `/metrics` endpoint.
+    /// Requires the `metrics` feature.
     Metrics,
+
+    /// Liveness probe endpoint middleware.
+    /// Adds a `/live` endpoint for Kubernetes liveness probes.
+    /// Returns 200 OK if the service is running.
     Liveness,
+
+    /// Readiness probe endpoint middleware.
+    /// Adds a `/ready` endpoint for Kubernetes readiness probes.
+    /// Returns 200 OK if the service is ready to accept traffic.
     Readiness,
+
+    /// Request timeout middleware.
+    /// Aborts requests that exceed the configured timeout.
+    /// Configured via `http.request_timeout` in TOML.
     Timeout,
+
+    /// Panic catching middleware.
+    /// Catches panics in handlers and returns a 500 error.
+    /// Prevents panics from crashing the server.
     CatchPanic,
+
+    /// Session management middleware.
+    /// Provides cookie-based session storage.
+    /// Requires the `session` feature.
     #[cfg(feature = "session")]
     Session,
+
+    /// OpenTelemetry tracing middleware.
+    /// Adds distributed tracing spans to requests.
+    /// Requires the `opentelemetry` feature.
     #[cfg(feature = "opentelemetry")]
     OpenTelemetry,
 }

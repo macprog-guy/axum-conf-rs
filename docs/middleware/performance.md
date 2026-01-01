@@ -106,17 +106,49 @@ exclude = ["timeout"]
 
 ### Per-Route Timeout
 
-For different timeouts per route, use manual middleware setup:
+For different timeouts per route, use nested routers. Each nested router can have its own timeout layer:
 
 ```rust
 use std::time::Duration;
-use tower::timeout::TimeoutLayer;
+use axum::Router;
+use tower_http::timeout::TimeoutLayer;
+
+// Routes with short timeout (5s)
+let fast_routes = Router::new()
+    .route("/fast", get(fast_handler))
+    .route("/api/quick", get(quick_handler))
+    .layer(TimeoutLayer::new(Duration::from_secs(5)));
+
+// Routes with long timeout (5 minutes)
+let slow_routes = Router::new()
+    .route("/reports", get(generate_report))
+    .route("/export", get(export_data))
+    .layer(TimeoutLayer::new(Duration::from_secs(300)));
+
+// Merge into main router
+FluentRouter::without_state(config)?
+    .merge(fast_routes)
+    .merge(slow_routes)
+    .setup_middleware()
+    .await?
+    .start()
+    .await
+```
+
+Alternatively, apply timeout to a single route inline:
+
+```rust
+use axum::routing::get;
+use tower_http::timeout::TimeoutLayer;
 
 FluentRouter::without_state(config)?
     .route("/fast", get(fast_handler))
-    .route("/slow", get(slow_handler))
-    .route_layer(TimeoutLayer::new(Duration::from_secs(5)))  // 5s for /slow only
-    // ... other middleware
+    .route(
+        "/slow",
+        get(slow_handler).layer(TimeoutLayer::new(Duration::from_secs(300)))
+    )
+    .setup_middleware()
+    .await?
 ```
 
 ## Payload Size Limit
@@ -289,51 +321,6 @@ support_compression = false
 
 [database]
 max_pool_size = 5
-```
-
-## Monitoring Performance
-
-### Key Metrics to Watch
-
-From Prometheus:
-
-```promql
-# Request rate
-rate(axum_conf_http_requests_total[5m])
-
-# P99 latency
-histogram_quantile(0.99, rate(axum_conf_http_request_duration_seconds_bucket[5m]))
-
-# Error rate
-rate(axum_conf_http_requests_total{status=~"5.."}[5m])
-
-# Response size
-histogram_quantile(0.99, rate(axum_conf_http_response_size_bytes_bucket[5m]))
-```
-
-### Alerting Rules
-
-```yaml
-groups:
-- name: performance
-  rules:
-  - alert: HighLatency
-    expr: histogram_quantile(0.99, rate(axum_conf_http_request_duration_seconds_bucket[5m])) > 1
-    for: 5m
-    annotations:
-      summary: "P99 latency above 1 second"
-
-  - alert: HighErrorRate
-    expr: rate(axum_conf_http_requests_total{status=~"5.."}[5m]) / rate(axum_conf_http_requests_total[5m]) > 0.01
-    for: 5m
-    annotations:
-      summary: "Error rate above 1%"
-
-  - alert: TooManyConcurrentRequests
-    expr: axum_conf_concurrent_requests > 3500
-    for: 1m
-    annotations:
-      summary: "Approaching concurrency limit"
 ```
 
 ## Next Steps

@@ -48,10 +48,48 @@ impl HttpDeduplicationConfig {
         10000
     }
 
+    /// Sets the time-to-live for cached request responses.
+    ///
+    /// After a request completes, its response is cached for this duration.
+    /// Subsequent requests with the same ID within this window receive the cached response.
+    ///
+    /// Longer TTLs provide better protection against late duplicates but consume more memory.
+    ///
+    /// # Arguments
+    ///
+    /// * `ttl` - Duration to keep responses in cache (default: 60 seconds)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use axum_conf::config::http::HttpDeduplicationConfig;
+    /// use std::time::Duration;
+    ///
+    /// let config = HttpDeduplicationConfig::default()
+    ///     .with_ttl(Duration::from_secs(300)); // 5 minutes
+    /// ```
     pub fn with_ttl(mut self, ttl: Duration) -> Self {
         self.ttl = ttl;
         self
     }
+
+    /// Sets the maximum number of request IDs to keep in the cache.
+    ///
+    /// When the cache reaches this size, older entries are evicted using LRU (least recently used).
+    /// Higher values provide better deduplication coverage but use more memory.
+    ///
+    /// # Arguments
+    ///
+    /// * `max_entries` - Maximum cache entries (default: 10000)
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use axum_conf::config::http::HttpDeduplicationConfig;
+    ///
+    /// let config = HttpDeduplicationConfig::default()
+    ///     .with_max_entries(50000); // Support 50k concurrent request IDs
+    /// ```
     pub fn with_max_entries(mut self, max_entries: usize) -> Self {
         self.max_entries = max_entries;
         self

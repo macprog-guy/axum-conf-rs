@@ -1,6 +1,6 @@
 [package]
 name = "axum-conf"
-version = "0.3.3"
+version = "0.3.4"
 edition = "2024"
 authors = ["Eric Methot <emethot@pictet.com>"]
 description = "A library to simplify the use of Axum, Tokio and Postgres together using configuration. It comes with batteries included and many features can be feature activated."
@@ -90,6 +90,23 @@ tracing-test = "0.2.5"
 [[bench]]
 name = "middleware_overhead"
 harness = false
+
+[[example]]
+name = "hello_world"
+path = "examples/hello_world.rs"
+
+[[example]]
+name = "with_state"
+path = "examples/with_state.rs"
+
+[[example]]
+name = "json_api"
+path = "examples/json_api.rs"
+
+[[example]]
+name = "with_middleware"
+path = "examples/with_middleware.rs"
+required-features = ["cors", "compression", "rate-limiting"]
 
 [features]
 default = []

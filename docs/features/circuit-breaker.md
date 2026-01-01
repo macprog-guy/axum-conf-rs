@@ -175,3 +175,272 @@ Route /emails     ──────▶ SendGrid  ──▶ [Single Circuit Brea
 ```
 
 This reflects actual failure domains - if PostgreSQL is down, all database routes fail together.
+
+## Production Monitoring
+
+### Logging
+
+The circuit breaker emits structured logs on state transitions:
+
+```
+WARN Circuit breaker opened          state=open
+INFO Circuit breaker transitioned    state=half-open
+INFO Circuit breaker closed          state=closed
+```
+
+Configure your logging to capture these:
+
+```rust
+use tracing_subscriber::EnvFilter;
+
+tracing_subscriber::fmt()
+    .with_env_filter(EnvFilter::new("axum_conf::circuit_breaker=info"))
+    .init();
+```
+
+### Exposing Circuit State via Health Endpoint
+
+Create a custom health endpoint that reports circuit breaker states:
+
+```rust
+use axum::{Json, extract::State};
+use axum_conf::circuit_breaker::{CircuitBreakerRegistry, CircuitState};
+use serde::Serialize;
+use std::collections::HashMap;
+
+#[derive(Serialize)]
+struct HealthResponse {
+    status: &'static str,
+    circuits: HashMap<String, CircuitStatus>,
+}
+
+#[derive(Serialize)]
+struct CircuitStatus {
+    state: String,
+    failure_count: u32,
+    success_count: u32,
+}
+
+async fn health_check(
+    State(registry): State<CircuitBreakerRegistry>,
+) -> Json<HealthResponse> {
+    let mut circuits = HashMap::new();
+
+    for target in ["database", "payment-api", "email-service"] {
+        if let Some(breaker) = registry.get(target) {
+            circuits.insert(target.to_string(), CircuitStatus {
+                state: breaker.current_state().to_string(),
+                failure_count: breaker.failure_count(),
+                success_count: breaker.success_count(),
+            });
+        }
+    }
+
+    let all_closed = circuits.values()
+        .all(|c| c.state == "closed");
+
+    Json(HealthResponse {
+        status: if all_closed { "healthy" } else { "degraded" },
+        circuits,
+    })
+}
+```
+
+Response example:
+
+```json
+{
+  "status": "degraded",
+  "circuits": {
+    "database": {
+      "state": "closed",
+      "failure_count": 0,
+      "success_count": 15
+    },
+    "payment-api": {
+      "state": "open",
+      "failure_count": 5,
+      "success_count": 0
+    }
+  }
+}
+```
+
+### Prometheus Metrics
+
+Expose circuit breaker metrics for Prometheus scraping:
+
+```rust
+use prometheus::{register_gauge_vec, GaugeVec};
+use axum_conf::circuit_breaker::{CircuitBreakerRegistry, CircuitState};
+use once_cell::sync::Lazy;
+
+static CIRCUIT_STATE: Lazy<GaugeVec> = Lazy::new(|| {
+    register_gauge_vec!(
+        "circuit_breaker_state",
+        "Circuit breaker state (0=closed, 1=half-open, 2=open)",
+        &["target"]
+    ).unwrap()
+});
+
+static CIRCUIT_FAILURES: Lazy<GaugeVec> = Lazy::new(|| {
+    register_gauge_vec!(
+        "circuit_breaker_failures",
+        "Current failure count",
+        &["target"]
+    ).unwrap()
+});
+
+fn update_circuit_metrics(registry: &CircuitBreakerRegistry) {
+    for target in ["database", "payment-api"] {
+        if let Some(breaker) = registry.get(target) {
+            let state_value = match breaker.current_state() {
+                CircuitState::Closed => 0.0,
+                CircuitState::HalfOpen => 1.0,
+                CircuitState::Open => 2.0,
+            };
+
+            CIRCUIT_STATE
+                .with_label_values(&[target])
+                .set(state_value);
+
+            CIRCUIT_FAILURES
+                .with_label_values(&[target])
+                .set(breaker.failure_count() as f64);
+        }
+    }
+}
+```
+
+### Grafana Dashboard
+
+Example Grafana panel queries:
+
+**Circuit State Timeline:**
+```promql
+circuit_breaker_state{target="database"}
+```
+
+**Open Circuit Alert:**
+```promql
+circuit_breaker_state == 2
+```
+
+**Failure Rate:**
+```promql
+rate(circuit_breaker_failures[5m])
+```
+
+### Alert Rules
+
+Example Prometheus alerting rules:
+
+```yaml
+groups:
+  - name: circuit-breaker
+    rules:
+      - alert: CircuitBreakerOpen
+        expr: circuit_breaker_state == 2
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Circuit breaker {{ $labels.target }} is open"
+          description: "The circuit breaker for {{ $labels.target }} has been open for over 1 minute"
+
+      - alert: CircuitBreakerHalfOpen
+        expr: circuit_breaker_state == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Circuit breaker {{ $labels.target }} is half-open"
+          description: "The circuit breaker for {{ $labels.target }} has been in recovery mode for over 5 minutes"
+
+      - alert: CircuitBreakerHighFailures
+        expr: circuit_breaker_failures > 3
+        labels:
+          severity: warning
+        annotations:
+          summary: "Circuit breaker {{ $labels.target }} approaching threshold"
+          description: "{{ $labels.target }} has {{ $value }} failures, threshold is 5"
+```
+
+### Kubernetes Integration
+
+Use circuit state in readiness probes:
+
+```rust
+async fn readiness_probe(
+    State(registry): State<CircuitBreakerRegistry>,
+) -> impl IntoResponse {
+    // Check critical dependencies
+    let db_healthy = registry.get("database")
+        .is_none_or(|b| b.current_state() != CircuitState::Open);
+
+    if db_healthy {
+        (StatusCode::OK, "OK")
+    } else {
+        (StatusCode::SERVICE_UNAVAILABLE, "Database circuit open")
+    }
+}
+```
+
+Kubernetes manifest:
+
+```yaml
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: 3000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3
+```
+
+### Tracing Integration
+
+Add circuit breaker spans to distributed traces:
+
+```rust
+use tracing::{instrument, Span};
+use axum_conf::circuit_breaker::{CircuitBreakerRegistry, guarded_call};
+
+#[instrument(skip(registry))]
+async fn call_payment_api(registry: &CircuitBreakerRegistry) -> Result<String, Error> {
+    let breaker = registry.get_or_default("payment-api");
+
+    Span::current().record("circuit.state", &breaker.current_state().to_string());
+
+    guarded_call(&breaker, "payment-api", async {
+        // API call
+        Ok("success".to_string())
+    })
+    .await
+    .map_err(|e| {
+        Span::current().record("circuit.error", &e.to_string());
+        e.into()
+    })
+}
+```
+
+### Dashboard Example
+
+A minimal monitoring dashboard should show:
+
+| Metric | Description | Alert Threshold |
+|--------|-------------|-----------------|
+| Circuit State | Current state per target | state = open for > 1m |
+| Failure Count | Failures since last reset | > 80% of threshold |
+| State Changes | Transitions over time | > 5 changes/hour |
+| Recovery Time | Time from open to closed | > 5 minutes |
+
+### Observability Checklist
+
+- [ ] Structured logging enabled for circuit breaker module
+- [ ] Health endpoint exposes circuit states
+- [ ] Prometheus metrics registered
+- [ ] Grafana dashboard configured
+- [ ] Alert rules defined for open circuits
+- [ ] Readiness probe considers circuit state
+- [ ] Trace spans include circuit context

@@ -149,33 +149,6 @@ spec:
     name: http
 ```
 
-### Grafana Dashboard Example
-
-```json
-{
-  "panels": [
-    {
-      "title": "Request Rate",
-      "targets": [{
-        "expr": "rate(axum_conf_http_requests_total[5m])"
-      }]
-    },
-    {
-      "title": "P99 Latency",
-      "targets": [{
-        "expr": "histogram_quantile(0.99, rate(axum_conf_http_request_duration_seconds_bucket[5m]))"
-      }]
-    },
-    {
-      "title": "Error Rate",
-      "targets": [{
-        "expr": "rate(axum_conf_http_requests_total{status=~\"5..\"}[5m])"
-      }]
-    }
-  ]
-}
-```
-
 ## Request ID
 
 Every request gets a unique UUIDv7 identifier for tracing.

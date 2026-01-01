@@ -238,12 +238,12 @@ async fn protected_data() -> &'static str { "Secret" }
 async fn main() -> Result<()> {
     let config = Config::default();
 
-    // Public routes go on a separate router
+    // Axum applies middleware from the outside in (last to first).
     // Protected routes have auth middleware applied
     FluentRouter::without_state(config)?
-        .route("/public", get(public_health))
         .route("/protected", get(protected_data))
         .setup_middleware()
+        .route("/public", get(public_health))
         .await?
         .start()
         .await
@@ -266,46 +266,6 @@ curl -H "Authorization: Bearer invalid" http://localhost:3000/protected
 # Expired token
 curl -H "Authorization: Bearer $EXPIRED_TOKEN" http://localhost:3000/protected
 # 401 Unauthorized: {"error":"unauthorized","message":"Token expired"}
-```
-
-## Testing with Mock Tokens
-
-For testing without a real Keycloak instance:
-
-```rust
-#[cfg(test)]
-mod tests {
-    use axum::{body::Body, http::Request};
-    use tower::ServiceExt;
-
-    #[tokio::test]
-    async fn test_without_auth() {
-        // Disable OIDC middleware in test config
-        let config: Config = r#"
-            [http]
-            bind_port = 0
-            max_payload_size_bytes = "1KiB"
-
-            [http.middleware]
-            exclude = ["oidc"]
-        "#.parse().unwrap();
-
-        let router = FluentRouter::without_state(config)
-            .unwrap()
-            .route("/test", get(|| async { "OK" }))
-            .setup_middleware()
-            .await
-            .unwrap()
-            .into_inner();
-
-        let response = router
-            .oneshot(Request::get("/test").body(Body::empty()).unwrap())
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), 200);
-    }
-}
 ```
 
 ## Next Steps

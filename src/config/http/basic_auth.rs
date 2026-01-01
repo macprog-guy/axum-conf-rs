@@ -1,3 +1,34 @@
+//! HTTP Basic Auth and API Key authentication configuration.
+//!
+//! This module provides configuration for simple authentication methods:
+//! - HTTP Basic Auth (RFC 7617) with username/password
+//! - API Key authentication via a configurable header
+//!
+//! # Feature Flag
+//!
+//! Requires the `basic-auth` feature to be enabled.
+//!
+//! # Example
+//!
+//! ```toml
+//! [http.basic_auth]
+//! mode = "either"  # Accept both Basic Auth and API Keys
+//! api_key_header = "X-API-Key"
+//!
+//! [[http.basic_auth.users]]
+//! username = "admin"
+//! password = "{{ ADMIN_PASSWORD }}"
+//!
+//! [[http.basic_auth.api_keys]]
+//! key = "{{ API_KEY }}"
+//! name = "frontend-service"
+//! ```
+//!
+//! # Important
+//!
+//! Basic Auth cannot be used together with OIDC authentication (`keycloak` feature).
+//! Choose one authentication method per application.
+
 use crate::{Error, Result, utils::Sensitive};
 use serde::Deserialize;
 

@@ -118,6 +118,38 @@ Enable optional capabilities:
 axum-conf = { version = "0.3", features = ["postgres", "keycloak"] }
 ```
 
+### Feature Compatibility
+
+Most features work together, with one important exception:
+
+| Feature | Compatible With | Notes |
+|---------|----------------|-------|
+| `keycloak` | All except `basic-auth` | Automatically enables `session` |
+| `basic-auth` | All except `keycloak` | Cannot be used with OIDC |
+| `postgres` | All features | Independent database layer |
+| `session` | All features | Required by `keycloak` |
+| `opentelemetry` | All features | Independent tracing layer |
+
+**Important:** `keycloak` and `basic-auth` are mutually exclusive. Choose one authentication method per application.
+
+## Examples
+
+Run the examples to see axum-conf in action:
+
+```bash
+# Basic hello world
+cargo run --example hello_world
+
+# Application state management
+cargo run --example with_state
+
+# JSON REST API
+cargo run --example json_api
+
+# Middleware configuration (requires features)
+cargo run --example with_middleware --features "cors,compression,rate-limiting"
+```
+
 ## Configuration Example
 
 ```toml

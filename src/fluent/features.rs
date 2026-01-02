@@ -465,22 +465,17 @@ where
         self
     }
 
-    /// Sets up Kubernetes health check endpoints.
+    /// Sets up the Kubernetes liveness probe endpoint.
     ///
-    /// Adds two endpoints for Kubernetes probes:
-    /// - **Liveness probe** - Always returns 200 OK (indicates process is running)
-    /// - **Readiness probe** - Returns 200 OK if service can handle traffic, including database connectivity check
-    ///
-    /// When the `postgres` feature is enabled and a database is configured in the config file,
-    /// the readiness endpoint will verify database connectivity by executing a simple query.
-    /// If the database is unreachable, returns 503 Service Unavailable.
+    /// Adds a simple endpoint that always returns 200 OK to indicate the process is running.
+    /// This endpoint is placed very early in the middleware stack (after panic catching) so
+    /// it remains accessible even when other middleware fails.
     ///
     /// # Configuration
     ///
     /// ```toml
     /// [http]
     /// liveness_route = "/live"   # Default
-    /// readiness_route = "/ready" # Default
     /// ```
     ///
     /// # Kubernetes Integration
@@ -490,50 +485,100 @@ where
     ///   httpGet:
     ///     path: /live
     ///     port: 3000
+    /// ```
+    #[must_use]
+    pub fn setup_liveness(mut self) -> Self {
+        if !self.is_middleware_enabled(HttpMiddleware::Liveness) {
+            return self;
+        }
+
+        let liveness_route = self.config.http.liveness_route.clone();
+        self.inner = self.inner.route(&liveness_route, get(|| async { "OK\n" }));
+        self
+    }
+
+    /// Sets up the Kubernetes readiness probe endpoint.
+    ///
+    /// Adds an endpoint that returns 200 OK if the service can handle traffic.
+    /// When the `postgres` feature is enabled and a database is configured,
+    /// this endpoint verifies database connectivity by executing a simple query.
+    /// If the database is unreachable, returns 503 Service Unavailable.
+    ///
+    /// This endpoint is placed after rate limiting and timeout middleware so that:
+    /// - Excessive health check requests don't overwhelm the service
+    /// - Database queries have a timeout to prevent hanging probes
+    ///
+    /// # Configuration
+    ///
+    /// ```toml
+    /// [http]
+    /// readiness_route = "/ready" # Default
+    /// ```
+    ///
+    /// # Kubernetes Integration
+    ///
+    /// ```yaml
     /// readinessProbe:
     ///   httpGet:
     ///     path: /ready
     ///     port: 3000
     /// ```
     #[must_use]
-    pub fn setup_liveness_readiness(mut self) -> Self {
-        let liveness_enabled = self.is_middleware_enabled(HttpMiddleware::Liveness);
-        let readiness_enabled = self.is_middleware_enabled(HttpMiddleware::Readiness);
-
-        if !liveness_enabled && !readiness_enabled {
+    pub fn setup_readiness(mut self) -> Self {
+        if !self.is_middleware_enabled(HttpMiddleware::Readiness) {
             return self;
         }
 
-        let liveness_route = self.config.http.liveness_route.clone();
         let readiness_route = self.config.http.readiness_route.clone();
 
         #[cfg(feature = "postgres")]
         let db_pool = self.db_pool.clone();
 
-        // Add liveness endpoint if enabled
-        if liveness_enabled {
-            self.inner = self.inner.route(&liveness_route, get(|| async { "OK\n" }));
-        }
-
-        // Add readiness endpoint if enabled
-        if readiness_enabled {
-            self.inner = self.inner.route(
-                &readiness_route,
-                get(|| async move {
-                    #[cfg(feature = "postgres")]
-                    match sqlx::query("SELECT 1").execute(&db_pool).await {
-                        Ok(_) => (StatusCode::OK, "OK\n"),
-                        Err(e) => {
-                            tracing::error!("Database health check failed: {}", e);
-                            (StatusCode::SERVICE_UNAVAILABLE, "Database unavailable\n")
-                        }
+        self.inner = self.inner.route(
+            &readiness_route,
+            get(|| async move {
+                #[cfg(feature = "postgres")]
+                match sqlx::query("SELECT 1").execute(&db_pool).await {
+                    Ok(_) => (StatusCode::OK, "OK\n"),
+                    Err(e) => {
+                        tracing::error!("Database health check failed: {}", e);
+                        (StatusCode::SERVICE_UNAVAILABLE, "Database unavailable\n")
                     }
+                }
 
-                    #[cfg(not(feature = "postgres"))]
-                    (StatusCode::OK, "OK\n")
-                }),
-            );
-        }
+                #[cfg(not(feature = "postgres"))]
+                (StatusCode::OK, "OK\n")
+            }),
+        );
         self
+    }
+
+    /// Sets up both Kubernetes health check endpoints.
+    ///
+    /// This is a convenience method that calls both [`setup_liveness`](Self::setup_liveness)
+    /// and [`setup_readiness`](Self::setup_readiness). However, when using `setup_middleware()`,
+    /// these endpoints are placed at different positions in the middleware stack for optimal
+    /// behavior.
+    ///
+    /// # Deprecated
+    ///
+    /// Prefer using `setup_middleware()` which places liveness and readiness endpoints at
+    /// their optimal positions in the middleware stack. If you need manual control, use
+    /// `setup_liveness()` and `setup_readiness()` separately.
+    ///
+    /// # Configuration
+    ///
+    /// ```toml
+    /// [http]
+    /// liveness_route = "/live"   # Default
+    /// readiness_route = "/ready" # Default
+    /// ```
+    #[must_use]
+    #[deprecated(
+        since = "0.4.0",
+        note = "Use setup_middleware() or call setup_liveness() and setup_readiness() separately for optimal middleware ordering"
+    )]
+    pub fn setup_liveness_readiness(self) -> Self {
+        self.setup_liveness().setup_readiness()
     }
 }

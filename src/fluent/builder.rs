@@ -57,23 +57,24 @@ where
     /// The **last layer added is the outermost layer** and executes **first** on incoming requests.
     ///
     /// The current order (from innermost to outermost):
-    /// 1. **Liveness/Readiness** - Health endpoints (innermost, closest to handlers)
-    /// 2. **OIDC Authentication** - Check auth after infrastructure layers
-    /// 3. **Deduplication** - Check for duplicate requests
-    /// 4. **Concurrency limit** - Control concurrent processing
-    /// 5. **Max payload size** - Limit body size
-    /// 6. **Compression/Decompression** - Handle encoding
-    /// 7. **Path normalization** - Normalize before routing
-    /// 8. **Sensitive headers** - Filter before logging
-    /// 9. **Request ID** - Generate/extract ID for tracing
-    /// 10. **API versioning** - Extract version from path/headers/query
-    /// 11. **CORS** - Handle preflight & add headers
-    /// 12. **Security headers (Helmet)** - Apply to all responses
-    /// 13. **Logging** - Log all requests
-    /// 14. **Metrics** - Measure all requests
-    /// 15. **Timeout** - Set timeout boundary for everything (optional)
-    /// 16. **Rate limiting** - Reject excessive requests early
-    /// 17. **Panic catching** - Catch ALL panics from inner layers (outermost)
+    /// 1. **OIDC Authentication** - Check auth after infrastructure layers
+    /// 2. **Deduplication** - Check for duplicate requests
+    /// 3. **Concurrency limit** - Control concurrent processing
+    /// 4. **Max payload size** - Limit body size
+    /// 5. **Compression/Decompression** - Handle encoding
+    /// 6. **Path normalization** - Normalize before routing
+    /// 7. **Sensitive headers** - Filter before logging
+    /// 8. **API versioning** - Extract version from path/headers/query
+    /// 9. **CORS** - Handle preflight & add headers
+    /// 10. **Security headers (Helmet)** - Apply to all responses
+    /// 11. **Logging** - Log all requests
+    /// 12. **Metrics** - Measure all requests
+    /// 13. **Readiness** - Database health check (benefits from timeout/rate limiting)
+    /// 14. **Timeout** - Set timeout boundary for everything (optional)
+    /// 15. **Rate limiting** - Reject excessive requests early
+    /// 16. **Request ID** - Generate/extract ID for tracing (early for observability)
+    /// 17. **Liveness** - Simple health check (always accessible, very early)
+    /// 18. **Panic catching** - Catch ALL panics from inner layers (outermost)
     ///
     /// # Manual Setup (Advanced)
     ///
@@ -82,7 +83,8 @@ where
     /// - **Call order matters**: Methods must be called in reverse execution order
     ///   (first method called = innermost layer = executes last on request)
     /// - **Dependencies**: Some middleware depends on others:
-    ///   - `setup_deduplication()` requires `setup_request_id()` to be called **after** it
+    ///   - `setup_request_id()` must be called **after** `setup_deduplication()` so the
+    ///     request ID is available when deduplication checks for duplicates
     ///   - `setup_oidc()` requires `setup_session_handling()` (when using sessions)
     /// - **Don't call twice**: Each `setup_*` method should only be called once
     /// - **Configuration controls**: Use `[http.middleware] exclude/include` instead of
@@ -94,10 +96,13 @@ where
     /// // Manual setup example (not recommended unless you need custom ordering)
     /// let router = FluentRouter::without_state(Config::default())?
     ///     // Innermost layers first (execute last on request)
-    ///     .setup_liveness_readiness()
     ///     .setup_deduplication()
-    ///     .setup_request_id()  // Must be after deduplication
     ///     .setup_logging()
+    ///     .setup_readiness()   // /ready - after timeout/rate limiting (benefits from protection)
+    ///     .setup_timeout()
+    ///     .setup_rate_limiting()
+    ///     .setup_request_id()  // Outer to deduplication, generates ID early
+    ///     .setup_liveness()    // /live - always accessible, very early
     ///     .setup_catch_panic();  // Outermost (executes first on request)
     /// # Ok(())
     /// # }
@@ -151,16 +156,17 @@ where
             .setup_compression() // 5. Compression/decompression
             .setup_path_normalization() // 6. Path normalization
             .setup_sensitive_headers() // 7. Filter sensitive headers
-            .setup_request_id() // 8. Request ID generation
-            .setup_api_versioning(default_api_version) // 9. API versioning
-            .setup_cors() // 10. CORS handling
-            .setup_helmet() // 11. Security headers
-            .setup_logging() // 12. Request/response logging
-            .setup_metrics() // 13. Metrics collection
+            .setup_api_versioning(default_api_version) // 8. API versioning
+            .setup_cors() // 9. CORS handling
+            .setup_helmet() // 10. Security headers
+            .setup_logging() // 11. Request/response logging
+            .setup_metrics() // 12. Metrics collection
+            .setup_readiness() // 13. Readiness endpoint (benefits from timeout/rate limiting)
             .setup_timeout() // 14. Request timeout (optional)
             .setup_rate_limiting() // 15. Rate limiting
-            .setup_catch_panic() // 16. Outermost - panic recovery
-            .setup_liveness_readiness(); // 17. Health endpoints (added last, so NOT protected by auth)
+            .setup_request_id() // 16. Request ID - early so all requests get IDs
+            .setup_liveness() // 17. Liveness endpoint (always accessible, very early)
+            .setup_catch_panic(); // 18. Outermost - panic recovery
 
         Ok(router)
     }

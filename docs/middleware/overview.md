@@ -36,88 +36,93 @@ When a request arrives, it flows through middleware from **outside to inside**, 
     ┌────────────────────────────────────────────────────────────────┐
     │                                                                │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │  17. PANIC CATCHING                                      │  │
+    │  │  18. PANIC CATCHING                                      │  │
     │  │      Catches all panics, returns 500, server continues   │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │  16. RATE LIMITING                                       │  │
-    │  │      Per-IP rate limiting, returns 429 if exceeded       │  │
+    │  │  17. LIVENESS (/live)                                    │  │
+    │  │      Simple health check, always accessible              │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │  15. TIMEOUT                                             │  │
-    │  │      Enforces request timeout, returns 408               │  │
-    │  └──────────────────────────────────────────────────────────┘  │
-    │                           │                                    │
-    │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │  14. METRICS (Prometheus)                                │  │
-    │  │      Records request count, duration, status, size       │  │
-    │  └──────────────────────────────────────────────────────────┘  │
-    │                           │                                    │
-    │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │  13. LOGGING                                             │  │
-    │  │      Creates trace span with method, path, request ID    │  │
-    │  └──────────────────────────────────────────────────────────┘  │
-    │                           │                                    │
-    │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │  12. SECURITY HEADERS (Helmet)                           │  │
-    │  │      X-Content-Type-Options, X-Frame-Options             │  │
-    │  └──────────────────────────────────────────────────────────┘  │
-    │                           │                                    │
-    │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │  11. CORS                                                │  │
-    │  │      Cross-origin requests, preflight handling           │  │
-    │  └──────────────────────────────────────────────────────────┘  │
-    │                           │                                    │
-    │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │  10. API VERSIONING                                      │  │
-    │  │      Extracts version from path/header/query             │  │
-    │  └──────────────────────────────────────────────────────────┘  │
-    │                           │                                    │
-    │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │   9. REQUEST ID                                          │  │
+    │  │  16. REQUEST ID                                          │  │
     │  │      Generates UUIDv7 or extracts from header            │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │   8. SENSITIVE HEADERS                                   │  │
+    │  │  15. RATE LIMITING                                       │  │
+    │  │      Per-IP rate limiting, returns 429 if exceeded       │  │
+    │  └──────────────────────────────────────────────────────────┘  │
+    │                           │                                    │
+    │  ┌──────────────────────────────────────────────────────────┐  │
+    │  │  14. TIMEOUT                                             │  │
+    │  │      Enforces request timeout, returns 408               │  │
+    │  └──────────────────────────────────────────────────────────┘  │
+    │                           │                                    │
+    │  ┌──────────────────────────────────────────────────────────┐  │
+    │  │  13. READINESS (/ready)                                  │  │
+    │  │      Database health check (benefits from timeout)       │  │
+    │  └──────────────────────────────────────────────────────────┘  │
+    │                           │                                    │
+    │  ┌──────────────────────────────────────────────────────────┐  │
+    │  │  12. METRICS (Prometheus)                                │  │
+    │  │      Records request count, duration, status, size       │  │
+    │  └──────────────────────────────────────────────────────────┘  │
+    │                           │                                    │
+    │  ┌──────────────────────────────────────────────────────────┐  │
+    │  │  11. LOGGING                                             │  │
+    │  │      Creates trace span with method, path, request ID    │  │
+    │  └──────────────────────────────────────────────────────────┘  │
+    │                           │                                    │
+    │  ┌──────────────────────────────────────────────────────────┐  │
+    │  │  10. SECURITY HEADERS (Helmet)                           │  │
+    │  │      X-Content-Type-Options, X-Frame-Options             │  │
+    │  └──────────────────────────────────────────────────────────┘  │
+    │                           │                                    │
+    │  ┌──────────────────────────────────────────────────────────┐  │
+    │  │   9. CORS                                                │  │
+    │  │      Cross-origin requests, preflight handling           │  │
+    │  └──────────────────────────────────────────────────────────┘  │
+    │                           │                                    │
+    │  ┌──────────────────────────────────────────────────────────┐  │
+    │  │   8. API VERSIONING                                      │  │
+    │  │      Extracts version from path/header/query             │  │
+    │  └──────────────────────────────────────────────────────────┘  │
+    │                           │                                    │
+    │  ┌──────────────────────────────────────────────────────────┐  │
+    │  │   7. SENSITIVE HEADERS                                   │  │
     │  │      Marks Authorization header as sensitive             │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │   7. PATH NORMALIZATION                                  │  │
+    │  │   6. PATH NORMALIZATION                                  │  │
     │  │      Removes trailing slashes                            │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │   6. COMPRESSION                                         │  │
+    │  │   5. COMPRESSION                                         │  │
     │  │      gzip, brotli, deflate, zstd                         │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │   5. PAYLOAD SIZE                                        │  │
+    │  │   4. PAYLOAD SIZE                                        │  │
     │  │      Rejects oversized requests (413)                    │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │   4. CONCURRENCY LIMIT                                   │  │
+    │  │   3. CONCURRENCY LIMIT                                   │  │
     │  │      Limits concurrent requests (503 if exceeded)        │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │   3. REQUEST DEDUPLICATION                               │  │
+    │  │   2. REQUEST DEDUPLICATION                               │  │
     │  │      Prevents duplicate request processing               │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │   2. AUTHENTICATION (OIDC/Basic Auth)                    │  │
+    │  │   1. AUTHENTICATION (OIDC/Basic Auth)                    │  │
     │  │      Validates JWT or credentials                        │  │
-    │  └──────────────────────────────────────────────────────────┘  │
-    │                           │                                    │
-    │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │   1. HEALTH ENDPOINTS                                    │  │
-    │  │      /live and /ready routes (always accessible)         │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                                                                │
     └────────────────────────────────────────────────────────────────┘
@@ -471,13 +476,15 @@ The middleware order is carefully designed:
 | Layer | Position | Reason |
 |-------|----------|--------|
 | Panic catching | Outermost | Catches panics from ALL layers |
+| Liveness (`/live`) | Very early | Simple check, always accessible, even during panics |
+| Request ID | Very early | All requests get IDs, even rejected ones |
 | Rate limiting | Early | Reject excess before expensive processing |
 | Timeout | Early | Set deadline before work begins |
-| Metrics/Logging | Early | Observe ALL requests, including rejected |
+| Readiness (`/ready`) | After timeout | Database check benefits from timeout protection |
+| Metrics/Logging | Middle | Observe ALL requests with request IDs |
 | Security headers | Middle | Add to all responses |
 | CORS | Middle | Handle preflight before auth |
-| Auth | Late | After infrastructure, before business logic |
-| Health checks | Innermost | Always accessible, even during issues |
+| Auth | Innermost | After infrastructure, before business logic |
 
 ## Next Steps
 

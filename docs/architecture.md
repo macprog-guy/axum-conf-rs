@@ -98,63 +98,66 @@ When a request arrives, it flows through the middleware stack from **outside to 
     │                 (execute first on request)                     │
     ├────────────────────────────────────────────────────────────────┤
     │                                                                │
-    │  17. Panic Catching ──────── Catches panics, returns 500       │
+    │  18. Panic Catching ──────── Catches panics, returns 500       │
     │           │                                                    │
     │           ▼                                                    │
-    │  16. Rate Limiting ───────── Rejects if over limit (429)       │
+    │  17. Liveness (/live) ────── Simple health check               │
     │           │                                                    │
     │           ▼                                                    │
-    │  15. Timeout ─────────────── Starts timeout timer              │
+    │  16. Request ID ──────────── Generates/extracts UUIDv7         │
     │           │                                                    │
     │           ▼                                                    │
-    │  14. Metrics ─────────────── Records request start             │
+    │  15. Rate Limiting ───────── Rejects if over limit (429)       │
     │           │                                                    │
     │           ▼                                                    │
-    │  13. Logging ─────────────── Creates trace span                │
+    │  14. Timeout ─────────────── Starts timeout timer              │
+    │           │                                                    │
+    │           ▼                                                    │
+    │  13. Readiness (/ready) ──── Database health check             │
+    │           │                                                    │
+    │           ▼                                                    │
+    │  12. Metrics ─────────────── Records request start             │
+    │           │                                                    │
+    │           ▼                                                    │
+    │  11. Logging ─────────────── Creates trace span                │
     │                                                                │
     ├────────────────────────────────────────────────────────────────┤
     │                     MIDDLE LAYERS                              │
     │                  (transform request/response)                  │
     ├────────────────────────────────────────────────────────────────┤
     │                                                                │
-    │  12. Security Headers ────── Prepares response headers         │
+    │  10. Security Headers ────── Prepares response headers         │
     │           │                                                    │
     │           ▼                                                    │
-    │  11. CORS ────────────────── Handles OPTIONS preflight         │
+    │   9. CORS ────────────────── Handles OPTIONS preflight         │
     │           │                                                    │
     │           ▼                                                    │
-    │  10. API Versioning ──────── Extracts version to extensions    │
+    │   8. API Versioning ──────── Extracts version to extensions    │
     │           │                                                    │
     │           ▼                                                    │
-    │   9. Request ID ──────────── Generates/extracts UUIDv7         │
+    │   7. Sensitive Headers ───── Marks Authorization as sensitive  │
     │           │                                                    │
     │           ▼                                                    │
-    │   8. Sensitive Headers ───── Marks Authorization as sensitive  │
+    │   6. Path Normalization ──── Removes trailing slashes          │
     │           │                                                    │
     │           ▼                                                    │
-    │   7. Path Normalization ──── Removes trailing slashes          │
+    │   5. Compression ─────────── Decompresses request body         │
     │           │                                                    │
     │           ▼                                                    │
-    │   6. Compression ─────────── Decompresses request body         │
+    │   4. Payload Size ────────── Rejects if too large (413)        │
     │           │                                                    │
     │           ▼                                                    │
-    │   5. Payload Size ────────── Rejects if too large (413)        │
+    │   3. Concurrency Limit ───── Rejects if at capacity (503)      │
     │           │                                                    │
     │           ▼                                                    │
-    │   4. Concurrency Limit ───── Rejects if at capacity (503)      │
-    │           │                                                    │
-    │           ▼                                                    │
-    │   3. Deduplication ───────── Checks for duplicate request ID   │
+    │   2. Deduplication ───────── Checks for duplicate request ID   │
     │                                                                │
     ├────────────────────────────────────────────────────────────────┤
     │                    INNERMOST LAYERS                            │
     │                 (execute last on request)                      │
     ├────────────────────────────────────────────────────────────────┤
     │                                                                │
-    │   2. Authentication ──────── Validates JWT/credentials         │
-    │           │                                                    │
-    │           ▼                                                    │
-    │   1. Health Endpoints ────── /live and /ready routes           │
+    │   1. Authentication ──────── Validates JWT/credentials         │
     │                                                                │
     └────────────────────────────────────────────────────────────────┘
                               │
@@ -174,12 +177,14 @@ The middleware order is intentional:
 | Layer | Position | Reasoning |
 |-------|----------|-----------|
 | **Panic Catching** | Outermost | Must catch ALL panics from any layer |
+| **Liveness** (`/live`) | Very early | Simple check, always accessible, even during panics |
+| **Request ID** | Very early | All requests get IDs, even rejected ones |
 | **Rate Limiting** | Very early | Reject excess traffic before expensive work |
-| **Metrics/Logging** | Early | Measure/log ALL requests including rejected ones |
+| **Timeout** | Early | Set deadline before work begins |
+| **Readiness** (`/ready`) | After timeout | Database check benefits from timeout/rate limiting |
+| **Metrics/Logging** | Middle | Measure/log ALL requests with request IDs |
 | **CORS** | Middle | Handle preflight before authentication |
-| **Request ID** | Middle | Generate ID early for tracing |
-| **Authentication** | Late | After infrastructure, before business logic |
-| **Health Endpoints** | Innermost | Always accessible, even during issues |
+| **Authentication** | Innermost | After infrastructure, before business logic |
 
 ## Configuration Loading
 

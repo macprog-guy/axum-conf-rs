@@ -1,6 +1,6 @@
 # Graceful Shutdown
 
-axum-conf handles shutdown signals properly, allowing in-flight requests to complete before the process exits.
+axum-conf handles shutdown signals properly, allowing in-flight requests to complete before the process exits. It also provides a notification system for components to react to shutdown events.
 
 ## How It Works
 
@@ -9,27 +9,86 @@ axum-conf handles shutdown signals properly, allowing in-flight requests to comp
           │
           ▼
     ┌─────────────────────────────┐
-    │  Stop accepting new         │
-    │  connections                │
+    │  ShutdownPhase::Initiated   │
+    │  • CancellationToken fired  │
+    │  • Stop accepting new       │
+    │    connections              │
     └─────────────────────────────┘
           │
           ▼
     ┌─────────────────────────────┐
-    │  Wait for in-flight         │
-    │  requests to complete       │
+    │  ShutdownPhase::             │
+    │    GracePeriodStarted       │
+    │  • Wait for in-flight       │
+    │    requests to complete     │
     │  (up to shutdown_timeout)   │
     └─────────────────────────────┘
           │
           ▼
     ┌─────────────────────────────┐
-    │  Force close remaining      │
-    │  connections                │
+    │  ShutdownPhase::             │
+    │    GracePeriodEnded         │
+    │  • Force close remaining    │
+    │    connections              │
     └─────────────────────────────┘
           │
           ▼
     ┌─────────────────────────────┐
     │  Process exits              │
     └─────────────────────────────┘
+```
+
+## Shutdown Notifications
+
+Components can subscribe to shutdown events for coordinated cleanup. See [Shutdown Notifications](../features/shutdown-notifications.md) for full details.
+
+### Quick Example
+
+```rust
+use axum_conf::{Config, FluentRouter, ShutdownPhase};
+
+#[tokio::main]
+async fn main() -> axum_conf::Result<()> {
+    let router = FluentRouter::without_state(Config::default())?;
+
+    // Option 1: Simple cancellation token for background tasks
+    let token = router.cancellation_token();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = token.cancelled() => {
+                    tracing::info!("Task stopping");
+                    break;
+                }
+                _ = do_work() => {}
+            }
+        }
+    });
+
+    // Option 2: Subscribe to shutdown phases for complex cleanup
+    let mut rx = router.subscribe_to_shutdown();
+    tokio::spawn(async move {
+        while let Ok(phase) = rx.recv().await {
+            match phase {
+                ShutdownPhase::Initiated => {
+                    tracing::info!("Shutdown starting");
+                }
+                ShutdownPhase::GracePeriodStarted { timeout } => {
+                    tracing::info!("{}s to complete", timeout.as_secs());
+                }
+                ShutdownPhase::GracePeriodEnded => {
+                    tracing::warn!("Forcing shutdown");
+                }
+            }
+        }
+    });
+
+    router.setup_middleware().await?.start().await
+}
+
+async fn do_work() {
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+}
 ```
 
 ## Configuration

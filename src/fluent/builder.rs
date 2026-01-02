@@ -1,6 +1,7 @@
 //! Orchestration and router delegation: setup_middleware(), start(), layer(), route(), etc.
 
 use super::router::FluentRouter;
+use super::shutdown::{ShutdownNotifier, ShutdownPhase};
 use crate::Result;
 
 use {
@@ -188,6 +189,40 @@ where
     ///
     /// The server supports both HTTP/1.1 and HTTP/2 protocols automatically.
     /// HTTP/2 will be used when clients request it via ALPN negotiation.
+    ///
+    /// # Graceful Shutdown
+    ///
+    /// When a shutdown signal is received (SIGTERM or SIGINT), the server:
+    ///
+    /// 1. Emits [`ShutdownPhase::Initiated`] to all subscribers
+    /// 2. Triggers the cancellation token (stopping background tasks)
+    /// 3. Stops accepting new connections
+    /// 4. Emits [`ShutdownPhase::GracePeriodStarted`] with the configured timeout
+    /// 5. Waits for in-flight requests to complete (up to `shutdown_timeout`)
+    /// 6. Emits [`ShutdownPhase::GracePeriodEnded`] if timeout expires
+    /// 7. Exits
+    ///
+    /// Components can subscribe to these phases before calling `start()`:
+    ///
+    /// ```rust,no_run
+    /// use axum_conf::{Config, FluentRouter, ShutdownPhase};
+    ///
+    /// # async fn example() -> axum_conf::Result<()> {
+    /// let router = FluentRouter::without_state(Config::default())?;
+    ///
+    /// // Set up shutdown handlers BEFORE starting
+    /// let mut shutdown_rx = router.subscribe_to_shutdown();
+    ///
+    /// tokio::spawn(async move {
+    ///     while let Ok(phase) = shutdown_rx.recv().await {
+    ///         tracing::info!("Shutdown phase: {:?}", phase);
+    ///     }
+    /// });
+    ///
+    /// // Now start the server
+    /// router.setup_middleware().await?.start().await
+    /// # }
+    /// ```
     pub async fn start(self) -> Result<()>
     where
         State: Clone + Send + Sync + 'static,
@@ -205,8 +240,13 @@ where
             .into_make_service_with_connect_info::<SocketAddr>();
 
         let shutdown_timeout = self.config.http.shutdown_timeout;
+        let shutdown_notifier = self.shutdown_notifier.clone();
+
         axum::serve(listener, service)
-            .with_graceful_shutdown(shutdown_signal_with_timeout(shutdown_timeout))
+            .with_graceful_shutdown(shutdown_signal_with_notifications(
+                shutdown_timeout,
+                shutdown_notifier,
+            ))
             .await?;
 
         Ok(())
@@ -488,18 +528,24 @@ where
     }
 }
 
-/// Returns a signal handler that allows us to stop the server using Ctrl+C
-/// or the terminate signal, which in turn allows us to perform a graceful
-/// shutdown with a configurable timeout.
+/// Returns a signal handler that emits shutdown phase notifications.
+///
+/// This function:
+/// 1. Waits for SIGTERM or SIGINT (Ctrl+C)
+/// 2. Emits [`ShutdownPhase::Initiated`] (and triggers the cancellation token)
+/// 3. Emits [`ShutdownPhase::GracePeriodStarted`] with the configured timeout
+/// 4. Waits for the timeout duration
+/// 5. Emits [`ShutdownPhase::GracePeriodEnded`]
+///
+/// Components can subscribe to these phases to perform coordinated cleanup.
 ///
 /// If signal registration fails, the function logs a warning and falls back to
 /// waiting indefinitely. This ensures the server continues running even if signal
 /// handlers cannot be installed (e.g., in restricted environments).
-///
-/// After receiving a shutdown signal, waits up to `timeout` for graceful shutdown.
-/// If the timeout expires, logs a warning and forces shutdown.
-#[allow(dead_code)]
-pub(crate) async fn shutdown_signal_with_timeout(timeout: Duration) {
+pub(crate) async fn shutdown_signal_with_notifications(
+    timeout: Duration,
+    notifier: ShutdownNotifier,
+) {
     let ctrl_c = async {
         match signal::ctrl_c().await {
             Ok(()) => {
@@ -536,12 +582,48 @@ pub(crate) async fn shutdown_signal_with_timeout(timeout: Duration) {
         _ = terminate => {},
     }
 
+    // Phase 1: Initiated - signal received, cancellation token triggered
     tracing::info!(
         "Shutdown signal received, starting graceful shutdown (timeout: {}s)",
         timeout.as_secs()
     );
+    let subscriber_count = notifier.emit(ShutdownPhase::Initiated);
+    tracing::debug!(
+        "Shutdown initiated notification sent to {} subscriber(s)",
+        subscriber_count
+    );
+
+    // Phase 2: Grace period started - in-flight requests draining
+    notifier.emit(ShutdownPhase::GracePeriodStarted { timeout });
 
     // Wait for the timeout duration to allow graceful shutdown
     tokio::time::sleep(timeout).await;
+
+    // Phase 3: Grace period ended - forcing shutdown
     tracing::warn!("Graceful shutdown timeout expired, forcing shutdown");
+    notifier.emit(ShutdownPhase::GracePeriodEnded);
+}
+
+/// Returns a signal handler that allows us to stop the server using Ctrl+C
+/// or the terminate signal, which in turn allows us to perform a graceful
+/// shutdown with a configurable timeout.
+///
+/// If signal registration fails, the function logs a warning and falls back to
+/// waiting indefinitely. This ensures the server continues running even if signal
+/// handlers cannot be installed (e.g., in restricted environments).
+///
+/// After receiving a shutdown signal, waits up to `timeout` for graceful shutdown.
+/// If the timeout expires, logs a warning and forces shutdown.
+///
+/// # Deprecated
+///
+/// This function is deprecated. Use [`shutdown_signal_with_notifications`] instead,
+/// which emits [`ShutdownPhase`] events for coordinated shutdown handling.
+#[allow(dead_code)]
+#[deprecated(
+    since = "0.4.0",
+    note = "Use shutdown_signal_with_notifications instead for shutdown phase notifications"
+)]
+pub(crate) async fn shutdown_signal_with_timeout(timeout: Duration) {
+    shutdown_signal_with_notifications(timeout, ShutdownNotifier::default()).await;
 }

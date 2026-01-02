@@ -208,6 +208,9 @@ where
     /// 6. Emits [`ShutdownPhase::GracePeriodEnded`] if timeout expires
     /// 7. Exits
     ///
+    /// If all connections drain before the timeout, shutdown completes early
+    /// without waiting for the full timeout duration.
+    ///
     /// Components can subscribe to these phases before calling `start()`:
     ///
     /// ```rust,no_run
@@ -248,12 +251,30 @@ where
         let shutdown_timeout = self.config.http.shutdown_timeout;
         let shutdown_notifier = self.shutdown_notifier.clone();
 
-        axum::serve(listener, service)
-            .with_graceful_shutdown(shutdown_signal_with_notifications(
-                shutdown_timeout,
-                shutdown_notifier,
-            ))
-            .await?;
+        let serve_future = axum::serve(listener, service).with_graceful_shutdown(
+            shutdown_signal_with_notifications(shutdown_timeout, shutdown_notifier.clone()),
+        );
+
+        // Wait for graceful shutdown with timeout enforcement.
+        // If connections drain before timeout, we complete early.
+        // If timeout expires first, we emit GracePeriodEnded and force shutdown.
+        match tokio::time::timeout(
+            shutdown_timeout + Duration::from_secs(1), // Allow signal handling + grace period
+            serve_future,
+        )
+        .await
+        {
+            Ok(result) => {
+                // Server shut down gracefully (connections drained)
+                tracing::info!("Graceful shutdown completed");
+                result?;
+            }
+            Err(_elapsed) => {
+                // Timeout expired, force shutdown
+                tracing::warn!("Graceful shutdown timeout expired, forcing shutdown");
+                shutdown_notifier.emit(ShutdownPhase::GracePeriodEnded);
+            }
+        }
 
         Ok(())
     }
@@ -540,8 +561,12 @@ where
 /// 1. Waits for SIGTERM or SIGINT (Ctrl+C)
 /// 2. Emits [`ShutdownPhase::Initiated`] (and triggers the cancellation token)
 /// 3. Emits [`ShutdownPhase::GracePeriodStarted`] with the configured timeout
-/// 4. Waits for the timeout duration
-/// 5. Emits [`ShutdownPhase::GracePeriodEnded`]
+/// 4. Returns immediately to let axum start graceful shutdown
+///
+/// The grace period timeout is enforced by the caller (see [`FluentRouter::start`]),
+/// which wraps the serve call with a timeout. When connections drain before the
+/// timeout, shutdown completes early. If the timeout expires first,
+/// [`ShutdownPhase::GracePeriodEnded`] is emitted and shutdown is forced.
 ///
 /// Components can subscribe to these phases to perform coordinated cleanup.
 ///
@@ -600,14 +625,9 @@ pub(crate) async fn shutdown_signal_with_notifications(
     );
 
     // Phase 2: Grace period started - in-flight requests draining
+    // Return immediately to let axum start graceful shutdown.
+    // The timeout is enforced by the caller wrapping the serve call.
     notifier.emit(ShutdownPhase::GracePeriodStarted { timeout });
-
-    // Wait for the timeout duration to allow graceful shutdown
-    tokio::time::sleep(timeout).await;
-
-    // Phase 3: Grace period ended - forcing shutdown
-    tracing::warn!("Graceful shutdown timeout expired, forcing shutdown");
-    notifier.emit(ShutdownPhase::GracePeriodEnded);
 }
 
 /// Returns a signal handler that allows us to stop the server using Ctrl+C
@@ -618,13 +638,11 @@ pub(crate) async fn shutdown_signal_with_notifications(
 /// waiting indefinitely. This ensures the server continues running even if signal
 /// handlers cannot be installed (e.g., in restricted environments).
 ///
-/// After receiving a shutdown signal, waits up to `timeout` for graceful shutdown.
-/// If the timeout expires, logs a warning and forces shutdown.
-///
 /// # Deprecated
 ///
 /// This function is deprecated. Use [`shutdown_signal_with_notifications`] instead,
 /// which emits [`ShutdownPhase`] events for coordinated shutdown handling.
+/// Note: The timeout is now enforced by the caller, not within this function.
 #[allow(dead_code)]
 #[deprecated(
     since = "0.4.0",

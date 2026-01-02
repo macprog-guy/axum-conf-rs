@@ -504,6 +504,11 @@ where
     /// this endpoint verifies database connectivity by executing a simple query.
     /// If the database is unreachable, returns 503 Service Unavailable.
     ///
+    /// When the `circuit-breaker` feature is also enabled, the endpoint first checks
+    /// if the database circuit breaker is open. If the circuit is open, it returns
+    /// 503 immediately without attempting a database query, preventing additional
+    /// load on a failing database.
+    ///
     /// This endpoint is placed after rate limiting and timeout middleware so that:
     /// - Excessive health check requests don't overwhelm the service
     /// - Database queries have a timeout to prevent hanging probes
@@ -534,9 +539,23 @@ where
         #[cfg(feature = "postgres")]
         let db_pool = self.db_pool.clone();
 
+        #[cfg(all(feature = "circuit-breaker", feature = "postgres"))]
+        let circuit_breaker_registry = self.circuit_breaker_registry.clone();
+
         self.inner = self.inner.route(
             &readiness_route,
             get(|| async move {
+                // When circuit-breaker and postgres are both enabled,
+                // check circuit state before querying
+                #[cfg(all(feature = "circuit-breaker", feature = "postgres"))]
+                {
+                    let breaker = circuit_breaker_registry.get_or_default("database");
+                    if !breaker.should_allow() {
+                        tracing::warn!("Database circuit breaker is open, skipping health check query");
+                        return (StatusCode::SERVICE_UNAVAILABLE, "Database circuit open\n");
+                    }
+                }
+
                 #[cfg(feature = "postgres")]
                 match sqlx::query("SELECT 1").execute(&db_pool).await {
                     Ok(_) => (StatusCode::OK, "OK\n"),

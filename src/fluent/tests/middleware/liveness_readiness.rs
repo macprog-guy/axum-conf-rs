@@ -14,7 +14,8 @@ async fn test_liveness_readiness_individual_control() {
 
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
-        .setup_liveness_readiness();
+        .setup_liveness()
+        .setup_readiness();
 
     let mut app = fluent_router.into_inner();
 

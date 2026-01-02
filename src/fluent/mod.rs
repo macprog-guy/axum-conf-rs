@@ -10,6 +10,7 @@
 //! - `features` - Features (routing, compression, CORS, Helmet, sessions, health)
 //! - `control` - Traffic control (rate limiting, panic catching)
 //! - `builder` - Orchestration (setup_middleware, start, router delegation)
+//! - `shutdown` - Graceful shutdown notifications and cancellation
 
 // Internal submodules (not part of the old public API, stay private)
 #[cfg(feature = "basic-auth")]
@@ -26,6 +27,7 @@ mod features;
 mod observability;
 mod request;
 mod router;
+mod shutdown;
 
 // Re-export dedup types for backward compatibility
 #[cfg(feature = "deduplication")]
@@ -33,6 +35,9 @@ pub use dedup::*;
 
 // Re-export FluentRouter - the main public type
 pub use router::FluentRouter;
+
+// Re-export shutdown types for public API
+pub use shutdown::{ShutdownNotifier, ShutdownPhase};
 
 #[cfg(test)]
 mod tests;

@@ -2,10 +2,13 @@
 
 #[cfg(any(feature = "rate-limiting", feature = "deduplication"))]
 use tokio_util::task::AbortOnDropHandle;
+use tokio_util::sync::CancellationToken;
 
 use {
+    super::shutdown::ShutdownNotifier,
     crate::{Config, HttpMiddleware, Result, StaticDirRoute},
     axum::Router,
+    tokio::sync::broadcast,
     tower_http::{services::fs::ServeDir, set_header::SetResponseHeaderLayer},
 };
 
@@ -21,6 +24,43 @@ use {
 /// If the configuration has a static files directory configured as a fallback,
 /// it will be automatically set up. For all other directories, call
 /// [`FluentRouter::setup_directories`] to install the necessary middleware.
+///
+/// # Graceful Shutdown
+///
+/// `FluentRouter` provides built-in support for graceful shutdown notifications.
+/// Components can subscribe to shutdown events or use a cancellation token:
+///
+/// ```rust,no_run
+/// use axum_conf::{Config, FluentRouter, ShutdownPhase};
+///
+/// # async fn example() -> axum_conf::Result<()> {
+/// let router = FluentRouter::without_state(Config::default())?;
+///
+/// // Option 1: Simple cancellation token for background tasks
+/// let token = router.cancellation_token();
+/// tokio::spawn(async move {
+///     loop {
+///         tokio::select! {
+///             _ = token.cancelled() => break,
+///             _ = do_work() => {}
+///         }
+///     }
+/// });
+///
+/// // Option 2: Subscribe to shutdown phases for complex cleanup
+/// let mut rx = router.shutdown_notifier().subscribe();
+/// tokio::spawn(async move {
+///     while let Ok(phase) = rx.recv().await {
+///         match phase {
+///             ShutdownPhase::Initiated => println!("Shutting down..."),
+///             _ => {}
+///         }
+///     }
+/// });
+/// # async fn do_work() {}
+/// # Ok(())
+/// # }
+/// ```
 pub struct FluentRouter<State = ()> {
     pub(crate) config: Config,
     pub(crate) state: State,
@@ -30,6 +70,7 @@ pub struct FluentRouter<State = ()> {
     #[cfg(feature = "deduplication")]
     pub(crate) dedup_cleanup_handle: Option<AbortOnDropHandle<()>>,
     pub(crate) panic_channel: Option<tokio::sync::mpsc::Sender<String>>,
+    pub(crate) shutdown_notifier: ShutdownNotifier,
     #[cfg(feature = "postgres")]
     pub(crate) db_pool: sqlx_postgres::PgPool,
     #[cfg(feature = "circuit-breaker")]
@@ -93,6 +134,7 @@ where
             #[cfg(feature = "deduplication")]
             dedup_cleanup_handle: None,
             panic_channel: None,
+            shutdown_notifier: ShutdownNotifier::default(),
             #[cfg(feature = "postgres")]
             db_pool,
             #[cfg(feature = "circuit-breaker")]
@@ -100,6 +142,138 @@ where
         };
 
         me.setup_fallback_files()
+    }
+
+    /// Returns a reference to the shutdown notifier.
+    ///
+    /// Use this to subscribe to shutdown phase notifications for coordinated
+    /// cleanup across multiple components.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use axum_conf::{Config, FluentRouter, ShutdownPhase};
+    ///
+    /// # async fn example() -> axum_conf::Result<()> {
+    /// let router = FluentRouter::without_state(Config::default())?;
+    /// let notifier = router.shutdown_notifier();
+    ///
+    /// // Subscribe from multiple places
+    /// let mut rx1 = notifier.subscribe();
+    /// let mut rx2 = notifier.subscribe();
+    ///
+    /// // Each subscriber receives all phases
+    /// tokio::spawn(async move {
+    ///     while let Ok(phase) = rx1.recv().await {
+    ///         match phase {
+    ///             ShutdownPhase::Initiated => {
+    ///                 // Close external connections
+    ///             }
+    ///             ShutdownPhase::GracePeriodStarted { timeout } => {
+    ///                 // Log remaining time
+    ///             }
+    ///             ShutdownPhase::GracePeriodEnded => {
+    ///                 // Flush buffers
+    ///             }
+    ///         }
+    ///     }
+    /// });
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn shutdown_notifier(&self) -> &ShutdownNotifier {
+        &self.shutdown_notifier
+    }
+
+    /// Returns a cancellation token that is triggered when shutdown begins.
+    ///
+    /// This is a convenience method equivalent to calling
+    /// `router.shutdown_notifier().cancellation_token()`.
+    ///
+    /// The token is triggered when the server receives a shutdown signal (SIGTERM/SIGINT).
+    /// Use it in background tasks to gracefully stop work.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use axum_conf::{Config, FluentRouter};
+    /// use std::time::Duration;
+    ///
+    /// # async fn example() -> axum_conf::Result<()> {
+    /// let router = FluentRouter::without_state(Config::default())?;
+    /// let token = router.cancellation_token();
+    ///
+    /// // Background task that respects shutdown
+    /// tokio::spawn(async move {
+    ///     let mut interval = tokio::time::interval(Duration::from_secs(60));
+    ///     loop {
+    ///         tokio::select! {
+    ///             _ = token.cancelled() => {
+    ///                 tracing::info!("Periodic task stopping");
+    ///                 break;
+    ///             }
+    ///             _ = interval.tick() => {
+    ///                 // Do periodic work
+    ///                 tracing::debug!("Running periodic task");
+    ///             }
+    ///         }
+    ///     }
+    /// });
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// # Multiple Tokens
+    ///
+    /// Each call returns a new clone of the token. All tokens share the same
+    /// cancellation state - when one is cancelled, all are cancelled:
+    ///
+    /// ```rust,no_run
+    /// # use axum_conf::{Config, FluentRouter};
+    /// # fn example() -> axum_conf::Result<()> {
+    /// let router = FluentRouter::without_state(Config::default())?;
+    ///
+    /// let token1 = router.cancellation_token();
+    /// let token2 = router.cancellation_token();
+    ///
+    /// // Both tokens will be cancelled simultaneously on shutdown
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn cancellation_token(&self) -> CancellationToken {
+        self.shutdown_notifier.cancellation_token()
+    }
+
+    /// Returns a receiver for shutdown phase notifications.
+    ///
+    /// This is a convenience method equivalent to calling
+    /// `router.shutdown_notifier().subscribe()`.
+    ///
+    /// Each call creates a new independent subscriber. Subscribers created
+    /// after a phase is emitted will not receive that phase.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use axum_conf::{Config, FluentRouter, ShutdownPhase};
+    ///
+    /// # async fn example() -> axum_conf::Result<()> {
+    /// let router = FluentRouter::without_state(Config::default())?;
+    /// let mut rx = router.subscribe_to_shutdown();
+    ///
+    /// tokio::spawn(async move {
+    ///     while let Ok(phase) = rx.recv().await {
+    ///         tracing::info!("Shutdown phase: {:?}", phase);
+    ///     }
+    /// });
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn subscribe_to_shutdown(&self) -> broadcast::Receiver<super::shutdown::ShutdownPhase> {
+        self.shutdown_notifier.subscribe()
     }
 
     /// Returns the configured PostgreSQL database pool.

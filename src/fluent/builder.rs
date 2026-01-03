@@ -251,26 +251,36 @@ where
         let shutdown_timeout = self.config.http.shutdown_timeout;
         let shutdown_notifier = self.shutdown_notifier.clone();
 
+        // Subscribe to shutdown notifications to know when signal is received
+        let mut shutdown_rx = shutdown_notifier.subscribe();
+
         let serve_future = axum::serve(listener, service).with_graceful_shutdown(
             shutdown_signal_with_notifications(shutdown_timeout, shutdown_notifier.clone()),
         );
 
         // Wait for graceful shutdown with timeout enforcement.
+        // The timeout only starts AFTER a shutdown signal is received, not immediately.
         // If connections drain before timeout, we complete early.
         // If timeout expires first, we emit GracePeriodEnded and force shutdown.
-        match tokio::time::timeout(
-            shutdown_timeout + Duration::from_secs(1), // Allow signal handling + grace period
-            serve_future,
-        )
-        .await
-        {
-            Ok(result) => {
+        tokio::select! {
+            result = serve_future => {
                 // Server shut down gracefully (connections drained)
                 tracing::info!("Graceful shutdown completed");
                 result?;
             }
-            Err(_elapsed) => {
-                // Timeout expired, force shutdown
+            _ = async {
+                // Wait for shutdown to be initiated before starting the timeout
+                loop {
+                    match shutdown_rx.recv().await {
+                        Ok(ShutdownPhase::Initiated) => break,
+                        Ok(_) => continue,
+                        Err(_) => return, // Channel closed
+                    }
+                }
+                // Now start the timeout (only after signal received)
+                tokio::time::sleep(shutdown_timeout).await;
+            } => {
+                // Timeout expired after shutdown was initiated
                 tracing::warn!("Graceful shutdown timeout expired, forcing shutdown");
                 shutdown_notifier.emit(ShutdownPhase::GracePeriodEnded);
             }

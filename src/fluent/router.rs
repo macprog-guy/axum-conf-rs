@@ -1,8 +1,8 @@
 //! Core FluentRouter struct and initialization methods.
 
+use tokio_util::sync::CancellationToken;
 #[cfg(any(feature = "rate-limiting", feature = "deduplication"))]
 use tokio_util::task::AbortOnDropHandle;
-use tokio_util::sync::CancellationToken;
 
 use {
     super::shutdown::ShutdownNotifier,
@@ -380,8 +380,8 @@ where
     }
 
     /// Sets up all static directories configured in the HTTP section except the fallback one.
-    /// If public is true, only unprotected directories will be added.
-    /// Otherwise only protected directories are added.
+    /// If protected is true, only protected directories will be added.
+    /// Otherwise only public directories are added.
     pub fn setup_directories(mut self, protected: bool) -> Result<Self> {
         // Add all other static directories
         for dir in &self.config.http.directories {
@@ -392,6 +392,8 @@ where
                     .append_index_html_on_directories(true)
                     .precompressed_br()
                     .precompressed_gzip();
+
+                eprintln!("Setting {:?} from files at {}", dir.route, dir.directory);
 
                 // Add cache headers if configured
                 if let Some(max_age) = dir.cache_max_age {

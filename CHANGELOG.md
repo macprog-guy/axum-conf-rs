@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Shutdown timer now only starts after a shutdown signal is received, preventing premature server termination
+- Static file directories are now automatically set up in `setup_middleware()` (calls `setup_public_files()`, `setup_protected_files()`, and `setup_fallback_files()`)
 
 ## [0.3.8] - 2026-01-03
 

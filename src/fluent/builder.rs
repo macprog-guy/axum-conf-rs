@@ -139,13 +139,18 @@ where
         // The last layer added executes FIRST on incoming requests
         // Note: route_layer applies to routes added BEFORE it, so OIDC auth is applied first,
         // then health endpoints are added AFTER (so they're not protected by auth)
-        let router = self;
+
+        // Protected static files must be added BEFORE auth so route_layer applies to them
+        let router = self.setup_protected_files()?;
 
         #[cfg(feature = "keycloak")]
         let router = router.setup_oidc()?; // 1a. OIDC Authentication (route_layer - applies to existing routes)
 
         #[cfg(feature = "basic-auth")]
         let router = router.setup_basic_auth()?; // 1b. Basic Auth (route_layer - applies to existing routes)
+
+        // Public static files added AFTER auth so they're accessible without authentication
+        let router = router.setup_public_files()?;
 
         let router = router.setup_user_span(); // 1c. Record username to span (after auth)
 
@@ -166,7 +171,8 @@ where
             .setup_rate_limiting() // 15. Rate limiting
             .setup_request_id() // 16. Request ID - early so all requests get IDs
             .setup_liveness() // 17. Liveness endpoint (always accessible, very early)
-            .setup_catch_panic(); // 18. Outermost - panic recovery
+            .setup_catch_panic() // 18. Outermost - panic recovery
+            .setup_fallback_files()?; // 19. Fallback static files (must be last)
 
         Ok(router)
     }

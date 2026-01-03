@@ -298,7 +298,8 @@ fn bench_middleware_stack_scaling(c: &mut Criterion) {
             .setup_logging()
             .setup_timeout()
             .setup_catch_panic()
-            .setup_liveness_readiness()
+            .setup_readiness()
+            .setup_liveness()
             .into_inner();
 
         group.bench_with_input(BenchmarkId::new("layers", 5), &router, |b, router| {

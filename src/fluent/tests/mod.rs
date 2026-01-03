@@ -151,13 +151,12 @@ pub(crate) async fn create_test_router(config: Option<Config>) -> Router {
 
 /// Creates a test router with static file support.
 /// Use this when testing static file serving.
+/// Note: setup_middleware() now handles static files automatically.
 pub(crate) async fn create_test_router_with_static_files(config: Config) -> Router {
     let config = prepare_config_for_test(config);
 
     FluentRouter::without_state(config)
         .expect("Failed to create FluentRouter")
-        .setup_public_files()
-        .expect("Failed to setup public files")
         .merge(Router::new().route("/test", get(|| async { "test response" })))
         .setup_middleware()
         .await

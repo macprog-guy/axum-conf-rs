@@ -1,6 +1,5 @@
 # axum-conf
 
-[![CI](https://github.com/emethot/axum-conf/actions/workflows/ci.yml/badge.svg)](https://github.com/emethot/axum-conf/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/emethot/axum-conf/graph/badge.svg)](https://codecov.io/gh/emethot/axum-conf)
 [![Crates.io](https://img.shields.io/crates/v/axum-conf.svg)](https://crates.io/crates/axum-conf)
 [![Documentation](https://docs.rs/axum-conf/badge.svg)](https://docs.rs/axum-conf)

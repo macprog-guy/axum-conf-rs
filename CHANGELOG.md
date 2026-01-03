@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Shutdown timer now only starts after a shutdown signal is received, preventing premature server termination
+
+## [0.3.8] - 2026-01-03
+
+### Fixed
+- Graceful shutdown now returns immediately after emitting shutdown phases instead of waiting the full timeout regardless of connection state
+
+## [0.3.7] - 2026-01-02
+
+### Added
+- Circuit breaker check to readiness endpoint (`/ready` now returns unhealthy when circuit breaker is open)
+
+## [0.3.6] - 2026-01-02
+
+### Added
+- Graceful shutdown notification system
+
+### Changed
+- Split liveness and readiness endpoints into separate setup methods for optimal middleware positioning
+- Middleware stack expanded from 17 to 18 layers
+
+### Deprecated
+- `setup_liveness_readiness()` method (use `setup_liveness()` and `setup_readiness()` instead)
+
+## [0.3.5] - 2026-01-01
+
+### Fixed
+- Regression in doctests
+
 ## [0.3.3] - 2025-01-01
 
 ### Changed
@@ -56,6 +86,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Kubernetes deployment guides with manifests
 - Troubleshooting guide
 
-[Unreleased]: https://github.com/emethot/axum-conf/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/emethot/axum-conf/compare/v0.3.8...HEAD
+[0.3.8]: https://github.com/emethot/axum-conf/compare/v0.3.7...v0.3.8
+[0.3.7]: https://github.com/emethot/axum-conf/compare/v0.3.6...v0.3.7
+[0.3.6]: https://github.com/emethot/axum-conf/compare/v0.3.5...v0.3.6
+[0.3.5]: https://github.com/emethot/axum-conf/compare/v0.3.3...v0.3.5
 [0.3.3]: https://github.com/emethot/axum-conf/compare/v0.3.0...v0.3.3
 [0.3.0]: https://github.com/emethot/axum-conf/releases/tag/v0.3.0

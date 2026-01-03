@@ -71,7 +71,9 @@ where
                 loop {
                     tokio::time::sleep(interval).await;
                     governor_limiter.retain_recent();
-                    tracing::debug!("remaining rate limiting quotas: {}", governor_limiter.len());
+                    if !governor_limiter.is_empty() {
+                        tracing::debug!("remaining rate storage size: {}", governor_limiter.len());
+                    }
                 }
             });
 

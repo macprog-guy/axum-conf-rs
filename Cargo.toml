@@ -1,11 +1,11 @@
 [package]
 name = "axum-conf"
-version = "0.3.9"
+version = "0.3.10"
 edition = "2024"
 authors = ["Eric Methot <emethot@pictet.com>"]
 description = "A library to simplify the use of Axum, Tokio and Postgres together using configuration. It comes with batteries included and many features can be feature activated."
 keywords = ["axum","postgres","configuration","tokio"]
-categories = ["Development tools"]
+categories = ["development-tools","rust-patterns","web-programming"]
 repository = "https://github.com/macprog-guy/axum-conf-rs.git"
 license = "MIT"
 

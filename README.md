@@ -102,19 +102,47 @@ curl http://localhost:3000/metrics # Prometheus metrics
 
 ## Cargo Features
 
-Enable optional capabilities:
+Enable optional capabilities by category:
+
+### Core Features
 
 | Feature | What it adds |
 |---------|--------------|
 | `postgres` | PostgreSQL connection pooling with sqlx |
 | `keycloak` | OIDC/JWT authentication via Keycloak |
-| `opentelemetry` | Distributed tracing with OTLP export |
 | `basic-auth` | HTTP Basic Auth and API key authentication |
 | `session` | Cookie-based session management |
+| `opentelemetry` | Distributed tracing with OTLP export |
+| `rustls` | TLS support (auto-enabled by `postgres`) |
+| `circuit-breaker` | Per-target circuit breaker for external services |
+| `openapi` | OpenAPI spec generation via utoipa |
+
+### Middleware Features
+
+| Feature | What it adds |
+|---------|--------------|
+| `metrics` | Prometheus metrics at `/metrics` |
+| `rate-limiting` | Per-IP request throttling |
+| `security-headers` | Security headers (X-Frame-Options, etc.) |
+| `deduplication` | Request deduplication by request ID |
+| `compression` | gzip/brotli/deflate/zstd compression |
+| `cors` | CORS handling |
+| `api-versioning` | API version extraction (path/header/query) |
+| `concurrency-limit` | Max concurrent request limiting |
+| `path-normalization` | Trailing slash normalization |
+| `sensitive-headers` | Authorization header redaction in logs |
+| `payload-limit` | Request body size limits |
+
+### Feature Groups
+
+| Group | Includes |
+|-------|----------|
+| `production` | metrics, rate-limiting, security-headers, compression, cors |
+| `full` | All features |
 
 ```toml
-# Example: Enable PostgreSQL and Keycloak
-axum-conf = { version = "0.3", features = ["postgres", "keycloak"] }
+# Example: Production setup with PostgreSQL
+axum-conf = { version = "0.3", features = ["production", "postgres"] }
 ```
 
 ### Feature Compatibility
@@ -188,8 +216,13 @@ format = "json"
 | [OpenTelemetry](docs/features/opentelemetry.md) | Distributed tracing |
 | [Basic Auth](docs/features/basic-auth.md) | Simple authentication |
 | [Sessions](docs/features/sessions.md) | Session management |
+| [Circuit Breaker](docs/features/circuit-breaker.md) | External service resilience |
+| [OpenAPI](docs/features/openapi.md) | API documentation generation |
+| [Deduplication](docs/features/deduplication.md) | Request deduplication |
+| [TLS/rustls](docs/features/rustls.md) | TLS configuration |
 | **Middleware** | |
 | [Overview](docs/middleware/overview.md) | Middleware stack architecture |
+| [Features](docs/middleware/features.md) | API versioning, limits, normalization |
 | [Security](docs/middleware/security.md) | Rate limiting, CORS, headers |
 | [Observability](docs/middleware/observability.md) | Logging, metrics, tracing |
 | [Performance](docs/middleware/performance.md) | Compression, timeouts, limits |

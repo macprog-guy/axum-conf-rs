@@ -16,7 +16,7 @@ use tower::ServiceExt;
 
 #[tokio::test]
 async fn test_request_id_preserves_existing_header() {
-    let config = Config::default();
+    let config = Config::new();
     let app = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route("/test", get(|| async { "OK" })))
@@ -49,7 +49,7 @@ async fn test_request_id_preserves_existing_header() {
 
 #[tokio::test]
 async fn test_request_id_preserves_uuid_format() {
-    let config = Config::default();
+    let config = Config::new();
     let app = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route("/test", get(|| async { "OK" })))
@@ -85,7 +85,7 @@ async fn test_request_id_preserves_uuid_format() {
 
 #[tokio::test]
 async fn test_request_id_works_with_multiple_routes() {
-    let config = Config::default();
+    let config = Config::new();
     let app = FluentRouter::without_state(config)
         .unwrap()
         .merge(
@@ -125,7 +125,7 @@ async fn test_request_id_works_with_multiple_routes() {
 
 #[tokio::test]
 async fn test_request_id_works_with_different_methods() {
-    let config = Config::default();
+    let config = Config::new();
     use axum::routing::{delete, post, put};
 
     let app = FluentRouter::without_state(config)
@@ -171,7 +171,7 @@ async fn test_request_id_works_with_different_methods() {
 #[tokio::test]
 async fn test_request_id_disabled() {
     // Must also exclude RequestDeduplication since it depends on RequestId
-    let config = Config::default().with_excluded_middlewares(vec![
+    let config = Config::new().with_excluded_middlewares(vec![
         HttpMiddleware::RequestId,
         HttpMiddleware::RequestDeduplication,
     ]);
@@ -204,7 +204,7 @@ async fn test_request_id_disabled() {
 
 #[tokio::test]
 async fn test_request_id_with_query_parameters() {
-    let config = Config::default();
+    let config = Config::new();
     let app = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route("/search", get(|| async { "search results" })))
@@ -233,7 +233,7 @@ async fn test_request_id_with_query_parameters() {
 
 #[tokio::test]
 async fn test_request_id_case_insensitive_header() {
-    let config = Config::default();
+    let config = Config::new();
     let app = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route("/test", get(|| async { "OK" })))
@@ -261,7 +261,7 @@ async fn test_request_id_case_insensitive_header() {
 
 #[tokio::test]
 async fn test_request_id_with_404_response() {
-    let config = Config::default();
+    let config = Config::new();
     let app = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route("/exists", get(|| async { "OK" })))
@@ -290,7 +290,7 @@ async fn test_request_id_with_404_response() {
 
 #[tokio::test]
 async fn test_request_id_special_characters_in_custom_id() {
-    let config = Config::default();
+    let config = Config::new();
     let app = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route("/test", get(|| async { "OK" })))
@@ -323,7 +323,7 @@ async fn test_request_id_special_characters_in_custom_id() {
 
 #[tokio::test]
 async fn test_request_id_different_ids_for_different_requests() {
-    let config = Config::default();
+    let config = Config::new();
     let app = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route("/test", get(|| async { "OK" })))
@@ -368,7 +368,7 @@ async fn test_request_id_different_ids_for_different_requests() {
 
 #[tokio::test]
 async fn test_request_id_empty_string_preserved() {
-    let config = Config::default();
+    let config = Config::new();
     let app = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route("/test", get(|| async { "OK" })))
@@ -396,7 +396,7 @@ async fn test_request_id_empty_string_preserved() {
 
 #[tokio::test]
 async fn test_request_id_long_custom_id() {
-    let config = Config::default();
+    let config = Config::new();
     let app = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route("/test", get(|| async { "OK" })))

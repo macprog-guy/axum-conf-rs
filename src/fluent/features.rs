@@ -551,7 +551,9 @@ where
                 {
                     let breaker = circuit_breaker_registry.get_or_default("database");
                     if !breaker.should_allow() {
-                        tracing::warn!("Database circuit breaker is open, skipping health check query");
+                        tracing::warn!(
+                            "Database circuit breaker is open, skipping health check query"
+                        );
                         return (StatusCode::SERVICE_UNAVAILABLE, "Database circuit open\n");
                     }
                 }

@@ -12,7 +12,7 @@ use tower::Service;
 #[tokio::test]
 async fn test_setup_helmet_with_defaults() {
     // Default config should include X-Content-Type-Options: nosniff and X-Frame-Options: DENY
-    let config = Config::default();
+    let config = Config::new();
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route("/test", get(|| async { "OK" })))
@@ -35,7 +35,7 @@ async fn test_setup_helmet_with_defaults() {
 
 #[tokio::test]
 async fn test_setup_helmet_x_content_type_disabled() {
-    let config = Config::default().with_x_content_type_nosniff(false);
+    let config = Config::new().with_x_content_type_nosniff(false);
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route("/test", get(|| async { "OK" })))
@@ -56,7 +56,7 @@ async fn test_setup_helmet_x_content_type_disabled() {
 
 #[tokio::test]
 async fn test_setup_helmet_x_frame_options_sameorigin() {
-    let config = Config::default().with_x_frame_options(HttpXFrameConfig::same_origin());
+    let config = Config::new().with_x_frame_options(HttpXFrameConfig::same_origin());
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route("/test", get(|| async { "OK" })))
@@ -83,7 +83,7 @@ async fn test_setup_helmet_x_frame_options_sameorigin() {
 
 #[tokio::test]
 async fn test_setup_helmet_x_frame_options_allow_from() {
-    let config = Config::default()
+    let config = Config::new()
         .with_x_frame_options(HttpXFrameConfig::allow_from("https://trusted.example.com"));
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
@@ -106,7 +106,7 @@ async fn test_setup_helmet_x_frame_options_allow_from() {
 
 #[tokio::test]
 async fn test_setup_helmet_both_headers_disabled() {
-    let config = Config::default()
+    let config = Config::new()
         .with_x_content_type_nosniff(false)
         .with_x_frame_options(HttpXFrameConfig::same_origin()); // Set X-Frame-Options to a value, but since helmet always adds it, we check it's present
 
@@ -133,7 +133,7 @@ async fn test_setup_helmet_both_headers_disabled() {
 
 #[tokio::test]
 async fn test_setup_helmet_with_multiple_routes() {
-    let config = Config::default().with_x_frame_options(HttpXFrameConfig::same_origin());
+    let config = Config::new().with_x_frame_options(HttpXFrameConfig::same_origin());
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
         .merge(

@@ -7,7 +7,7 @@ async fn test_opentelemetry_initialization() {
     use crate::FluentRouter;
     use crate::config::OpenTelemetryConfig;
 
-    let config = Config::default().with_opentelemetry_config(
+    let config = Config::new().with_opentelemetry_config(
         OpenTelemetryConfig::new("http://localhost:4317").with_service_name("test-service"),
     );
     // Should successfully initialize (even if endpoint is not reachable)

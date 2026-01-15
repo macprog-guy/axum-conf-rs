@@ -10,7 +10,7 @@ use tower::Service;
 #[tokio::test]
 async fn test_liveness_readiness_individual_control() {
     // Test that liveness and readiness can be independently controlled
-    let config = Config::default().with_included_middlewares(vec![HttpMiddleware::Liveness]); // Readiness is NOT included
+    let config = Config::new().with_included_middlewares(vec![HttpMiddleware::Liveness]); // Readiness is NOT included
 
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()

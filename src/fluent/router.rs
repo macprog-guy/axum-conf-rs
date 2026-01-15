@@ -8,6 +8,7 @@ use {
     super::shutdown::ShutdownNotifier,
     crate::{Config, HttpMiddleware, Result, StaticDirRoute},
     axum::Router,
+    serde::de::DeserializeOwned,
     tokio::sync::broadcast,
     tower_http::{services::fs::ServeDir, set_header::SetResponseHeaderLayer},
 };
@@ -79,8 +80,46 @@ pub struct FluentRouter<State = ()> {
 
 impl FluentRouter {
     /// Creates a new `FluentRouter` without application state.
-    pub fn without_state(config: Config) -> Result<FluentRouter<()>> {
-        FluentRouter::<()>::with_state(config, ())
+    ///
+    /// Accepts any `Config<T>` and extracts the base configuration fields,
+    /// discarding the application-specific config. To preserve your app config,
+    /// clone `config.app` before calling this method.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use axum_conf::{Config, FluentRouter};
+    /// use serde::Deserialize;
+    ///
+    /// #[derive(Debug, Clone, Default, Deserialize)]
+    /// struct MyAppConfig {
+    ///     #[serde(default)]
+    ///     api_key: String,
+    /// }
+    ///
+    /// # fn example() -> axum_conf::Result<()> {
+    /// let config: Config<MyAppConfig> = Config::default();
+    /// let my_settings = config.app.clone();  // Preserve app config
+    /// let router = FluentRouter::without_state(config)?;
+    /// // Use my_settings in your handlers via state
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn without_state<T>(config: Config<T>) -> Result<FluentRouter<()>>
+    where
+        T: DeserializeOwned + Clone + Default,
+    {
+        // Extract base config, discarding app-specific fields
+        let base_config: Config<()> = Config {
+            http: config.http,
+            #[cfg(feature = "postgres")]
+            database: config.database,
+            logging: config.logging,
+            #[cfg(feature = "circuit-breaker")]
+            circuit_breaker: config.circuit_breaker,
+            app: (),
+        };
+        FluentRouter::<()>::with_state(base_config, ())
     }
 }
 
@@ -96,9 +135,14 @@ where
     /// and made available for health checks. It can also be accessed via a call to
     /// `db_pool()`.
     ///
+    /// Accepts any `Config<T>` and extracts the base configuration fields,
+    /// discarding the application-specific config. To preserve your app config,
+    /// clone `config.app` before calling this method.
+    ///
     /// # Arguments
     ///
-    /// * `config` - The service configuration
+    /// * `config` - The service configuration (with any app-specific type)
+    /// * `state` - The application state to be shared across handlers
     ///
     /// # Returns
     ///
@@ -110,10 +154,11 @@ where
     /// - Configuration validation fails
     /// - Fallback directories are marked as protected
     /// - Required configuration values are missing
-    pub fn with_state<S: Clone + Send + Sync + 'static>(
-        config: Config,
-        state: S,
-    ) -> Result<FluentRouter<S>> {
+    pub fn with_state<S, T>(config: Config<T>, state: S) -> Result<FluentRouter<S>>
+    where
+        S: Clone + Send + Sync + 'static,
+        T: DeserializeOwned + Clone + Default,
+    {
         // Validate the configuration
         config.validate()?;
 
@@ -124,9 +169,20 @@ where
         let circuit_breaker_registry =
             crate::circuit_breaker::CircuitBreakerRegistry::new(&config.circuit_breaker);
 
+        // Extract base config, discarding app-specific fields
+        let base_config = Config {
+            http: config.http,
+            #[cfg(feature = "postgres")]
+            database: config.database,
+            logging: config.logging,
+            #[cfg(feature = "circuit-breaker")]
+            circuit_breaker: config.circuit_breaker,
+            app: (),
+        };
+
         // Create the base router and add public fallback files if configured
         let me = FluentRouter {
-            config,
+            config: base_config,
             state,
             inner: Router::new(),
             #[cfg(feature = "rate-limiting")]

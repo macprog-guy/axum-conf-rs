@@ -583,7 +583,7 @@ x_frame_options = "SAMEORIGIN"
 
     #[test]
     fn test_security_headers_in_default_config() {
-        let config = Config::default();
+        let config = Config::new();
         assert!(config.http.x_content_type_nosniff);
         assert!(matches!(config.http.x_frame_options.0, XFrameOptions::Deny));
     }

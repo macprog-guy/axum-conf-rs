@@ -12,7 +12,7 @@ use tower::Service;
 #[tokio::test]
 async fn test_middleware_config_exclude() {
     // Test that middleware can be selectively disabled
-    let config = Config::default().with_excluded_middlewares(vec![
+    let config = Config::new().with_excluded_middlewares(vec![
         HttpMiddleware::Compression,
         HttpMiddleware::PathNormalization,
     ]);
@@ -34,7 +34,7 @@ async fn test_middleware_config_exclude() {
 #[tokio::test]
 async fn test_middleware_config_include() {
     // Test that only specified middleware are enabled
-    let config = Config::default()
+    let config = Config::new()
         .with_included_middlewares(vec![HttpMiddleware::RequestId, HttpMiddleware::Logging]);
 
     let fluent_router = FluentRouter::without_state(config).unwrap();
@@ -68,7 +68,7 @@ async fn test_middleware_config_include() {
 #[tokio::test]
 async fn test_middleware_config_default_all_enabled() {
     // Test that when no middleware config is provided, all middleware are enabled
-    let config = Config::default();
+    let config = Config::new();
 
     let fluent_router = FluentRouter::without_state(config).unwrap();
 
@@ -82,7 +82,7 @@ async fn test_middleware_config_default_all_enabled() {
 #[tokio::test]
 async fn test_logging_disabled_path() {
     // Test the early return path when logging is disabled
-    let config = Config::default().with_excluded_middlewares(vec![HttpMiddleware::Logging]);
+    let config = Config::new().with_excluded_middlewares(vec![HttpMiddleware::Logging]);
 
     let mut app = FluentRouter::without_state(config)
         .unwrap()
@@ -102,7 +102,7 @@ async fn test_logging_disabled_path() {
 #[tokio::test]
 async fn test_api_versioning_disabled_path() {
     // Test the early return path when API versioning is disabled
-    let config = Config::default().with_excluded_middlewares(vec![HttpMiddleware::ApiVersioning]);
+    let config = Config::new().with_excluded_middlewares(vec![HttpMiddleware::ApiVersioning]);
 
     let mut app = FluentRouter::without_state(config)
         .unwrap()
@@ -122,7 +122,7 @@ async fn test_api_versioning_disabled_path() {
 async fn test_sensitive_headers_disabled_path() {
     // Test the early return path when sensitive headers is disabled
     let config =
-        Config::default().with_excluded_middlewares(vec![HttpMiddleware::SensitiveHeaders]);
+        Config::new().with_excluded_middlewares(vec![HttpMiddleware::SensitiveHeaders]);
 
     let mut app = FluentRouter::without_state(config)
         .unwrap()
@@ -141,7 +141,7 @@ async fn test_sensitive_headers_disabled_path() {
 #[tokio::test]
 async fn test_helmet_disabled_path() {
     // Test the early return path when security headers are disabled
-    let config = Config::default().with_excluded_middlewares(vec![HttpMiddleware::SecurityHeaders]);
+    let config = Config::new().with_excluded_middlewares(vec![HttpMiddleware::SecurityHeaders]);
 
     let mut app = FluentRouter::without_state(config)
         .unwrap()

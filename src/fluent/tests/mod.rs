@@ -67,10 +67,10 @@ pub(crate) fn create_base_config() -> Config {
 #[allow(dead_code)]
 pub(crate) fn create_test_config() -> Config {
     #[cfg(not(feature = "postgres"))]
-    let config = Config::default();
+    let config = Config::new();
 
     #[cfg(feature = "postgres")]
-    let config = Config::default().with_pg_url("postgres://test:test@localhost:5432/test");
+    let config = Config::new().with_pg_url("postgres://test:test@localhost:5432/test");
 
     config
 }

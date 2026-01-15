@@ -11,7 +11,7 @@ use tower::Service;
 
 #[tokio::test]
 async fn test_setup_catch_panic_with_panic() {
-    let config = Config::default();
+    let config = Config::new();
     // Create a route that panics
     let panic_router = Router::new().route(
         "/panic",
@@ -57,7 +57,7 @@ async fn test_setup_catch_panic_with_panic() {
 
 #[tokio::test]
 async fn test_setup_catch_panic_normal_request() {
-    let config = Config::default();
+    let config = Config::new();
     // Create a normal route
     let normal_router = Router::new().route("/normal", get(|| async { "OK" }));
 
@@ -89,7 +89,7 @@ async fn test_setup_catch_panic_normal_request() {
 
 #[tokio::test]
 async fn test_with_panic_notification_channel() {
-    let config = Config::default();
+    let config = Config::new();
     // Create a channel to receive panic notifications
     let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(10);
 
@@ -135,7 +135,7 @@ async fn test_with_panic_notification_channel() {
 
 #[tokio::test]
 async fn test_with_panic_notification_channel_no_panic() {
-    let config = Config::default();
+    let config = Config::new();
     // Create a channel to receive panic notifications
     let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(10);
 
@@ -172,7 +172,7 @@ async fn test_with_panic_notification_channel_no_panic() {
 
 #[tokio::test]
 async fn test_catch_panic_with_string_panic() {
-    let config = Config::default();
+    let config = Config::new();
     let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(10);
 
     // Create a route that panics with a String

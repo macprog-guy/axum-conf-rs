@@ -6,7 +6,7 @@ use tower::ServiceExt;
 
 #[tokio::test]
 async fn test_api_versioning_from_path_v1() {
-    let config = Config::default();
+    let config = Config::new();
     // Handler that returns the API version from extensions
     async fn handler(Extension(version): Extension<ApiVersion>) -> String {
         version.to_string()
@@ -38,7 +38,7 @@ async fn test_api_versioning_from_path_v1() {
 
 #[tokio::test]
 async fn test_api_versioning_from_path_v2() {
-    let config = Config::default();
+    let config = Config::new();
     async fn handler(Extension(version): Extension<ApiVersion>) -> String {
         version.to_string()
     }
@@ -69,7 +69,7 @@ async fn test_api_versioning_from_path_v2() {
 
 #[tokio::test]
 async fn test_api_versioning_from_path_api_prefix() {
-    let config = Config::default();
+    let config = Config::new();
     async fn handler(Extension(version): Extension<ApiVersion>) -> String {
         version.to_string()
     }
@@ -100,7 +100,7 @@ async fn test_api_versioning_from_path_api_prefix() {
 
 #[tokio::test]
 async fn test_api_versioning_from_header_x_api_version() {
-    let config = Config::default();
+    let config = Config::new();
     async fn handler(Extension(version): Extension<ApiVersion>) -> String {
         version.to_string()
     }
@@ -132,7 +132,7 @@ async fn test_api_versioning_from_header_x_api_version() {
 
 #[tokio::test]
 async fn test_api_versioning_from_accept_header() {
-    let config = Config::default();
+    let config = Config::new();
     async fn handler(Extension(version): Extension<ApiVersion>) -> String {
         version.to_string()
     }
@@ -164,7 +164,7 @@ async fn test_api_versioning_from_accept_header() {
 
 #[tokio::test]
 async fn test_api_versioning_from_query_parameter() {
-    let config = Config::default();
+    let config = Config::new();
     async fn handler(Extension(version): Extension<ApiVersion>) -> String {
         version.to_string()
     }
@@ -197,7 +197,7 @@ async fn test_api_versioning_from_query_parameter() {
 
 #[tokio::test]
 async fn test_api_versioning_default_when_no_version_specified() {
-    let config = Config::default();
+    let config = Config::new();
     async fn handler(Extension(version): Extension<ApiVersion>) -> String {
         version.to_string()
     }
@@ -228,7 +228,7 @@ async fn test_api_versioning_default_when_no_version_specified() {
 
 #[tokio::test]
 async fn test_api_versioning_priority_path_over_header() {
-    let config = Config::default();
+    let config = Config::new();
     async fn handler(Extension(version): Extension<ApiVersion>) -> String {
         version.to_string()
     }
@@ -261,7 +261,7 @@ async fn test_api_versioning_priority_path_over_header() {
 
 #[tokio::test]
 async fn test_api_versioning_priority_header_over_query() {
-    let config = Config::default();
+    let config = Config::new();
     async fn handler(Extension(version): Extension<ApiVersion>) -> String {
         version.to_string()
     }
@@ -294,7 +294,7 @@ async fn test_api_versioning_priority_header_over_query() {
 
 #[tokio::test]
 async fn test_api_versioning_disabled() {
-    let config = Config::default().with_excluded_middlewares(vec![HttpMiddleware::ApiVersioning]);
+    let config = Config::new().with_excluded_middlewares(vec![HttpMiddleware::ApiVersioning]);
     async fn handler(version: Option<Extension<ApiVersion>>) -> String {
         match version {
             Some(Extension(v)) => format!("Version: {}", v),
@@ -329,7 +329,7 @@ async fn test_api_versioning_disabled() {
 
 #[tokio::test]
 async fn test_api_versioning_with_multiple_routes() {
-    let config = Config::default();
+    let config = Config::new();
     async fn v1_handler(Extension(version): Extension<ApiVersion>) -> String {
         format!("V1 handler, version: {}", version)
     }
@@ -386,7 +386,7 @@ async fn test_api_versioning_with_multiple_routes() {
 
 #[tokio::test]
 async fn test_api_versioning_large_version_number() {
-    let config = Config::default();
+    let config = Config::new();
     async fn handler(Extension(version): Extension<ApiVersion>) -> String {
         version.to_string()
     }
@@ -417,7 +417,7 @@ async fn test_api_versioning_large_version_number() {
 
 #[tokio::test]
 async fn test_api_versioning_zero_version() {
-    let config = Config::default();
+    let config = Config::new();
     async fn handler(Extension(version): Extension<ApiVersion>) -> String {
         version.to_string()
     }
@@ -443,7 +443,7 @@ async fn test_api_versioning_zero_version() {
 
 #[tokio::test]
 async fn test_api_versioning_with_complex_path() {
-    let config = Config::default();
+    let config = Config::new();
     async fn handler(Extension(version): Extension<ApiVersion>) -> String {
         version.to_string()
     }
@@ -474,7 +474,7 @@ async fn test_api_versioning_with_complex_path() {
 
 #[tokio::test]
 async fn test_api_versioning_handler_without_extension() {
-    let config = Config::default();
+    let config = Config::new();
     // Handler that doesn't require version (version is still set, just not used)
     async fn handler() -> String {
         "OK".to_string()
@@ -506,7 +506,7 @@ async fn test_api_versioning_handler_without_extension() {
 
 #[tokio::test]
 async fn test_api_versioning_with_query_and_path() {
-    let config = Config::default();
+    let config = Config::new();
     async fn handler(Extension(version): Extension<ApiVersion>) -> String {
         version.to_string()
     }

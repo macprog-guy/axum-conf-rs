@@ -14,16 +14,12 @@
 //! curl http://localhost:3000/counter
 //! ```
 
-use axum::{
-    extract::State,
-    routing::get,
-    Json,
-};
+use axum::{Json, extract::State, routing::get};
 use axum_conf::{Config, FluentRouter, Result};
 use serde::Serialize;
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
     Arc,
+    atomic::{AtomicU64, Ordering},
 };
 
 /// Shared application state

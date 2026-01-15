@@ -37,7 +37,7 @@ async fn counter_handler(State(state): State<AppState>) -> impl IntoResponse {
 
 #[tokio::test]
 async fn test_deduplication_disabled_by_default() {
-    let config = Config::default();
+    let config = Config::new();
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route("/test", get(|| async { "OK" })))
@@ -79,7 +79,7 @@ async fn test_deduplication_disabled_by_default() {
 
 #[tokio::test]
 async fn test_deduplication_returns_conflict_response() {
-    let config = Config::default().with_deduplication_config(
+    let config = Config::new().with_deduplication_config(
         HttpDeduplicationConfig::default()
             .with_ttl(std::time::Duration::from_secs(5))
             .with_max_entries(100),
@@ -130,7 +130,7 @@ async fn test_deduplication_returns_conflict_response() {
 
 #[tokio::test]
 async fn test_deduplication_allows_different_request_ids() {
-    let config = Config::default().with_deduplication_config(
+    let config = Config::new().with_deduplication_config(
         HttpDeduplicationConfig::default()
             .with_ttl(std::time::Duration::from_secs(5))
             .with_max_entries(100),
@@ -174,7 +174,7 @@ async fn test_deduplication_allows_different_request_ids() {
 
 #[tokio::test]
 async fn test_deduplication_allows_request_without_id() {
-    let config = Config::default().with_deduplication_config(
+    let config = Config::new().with_deduplication_config(
         HttpDeduplicationConfig::default()
             .with_ttl(std::time::Duration::from_secs(5))
             .with_max_entries(100),
@@ -200,7 +200,7 @@ async fn test_deduplication_allows_request_without_id() {
 async fn test_deduplication_basic_idempotency() {
     let state = AppState::new();
 
-    let config = Config::default()
+    let config = Config::new()
         .with_deduplication_config(HttpDeduplicationConfig {
             ttl: std::time::Duration::from_secs(60),
             max_entries: 1000,
@@ -267,7 +267,7 @@ async fn test_deduplication_basic_idempotency() {
 async fn test_deduplication_different_request_ids() {
     let state = AppState::new();
 
-    let config = Config::default()
+    let config = Config::new()
         .with_deduplication_config(HttpDeduplicationConfig {
             ttl: std::time::Duration::from_secs(60),
             max_entries: 1000,
@@ -346,7 +346,7 @@ async fn test_deduplication_different_request_ids() {
 async fn test_deduplication_ttl_expiration2() {
     let state = AppState::new();
 
-    let config = Config::default()
+    let config = Config::new()
         .with_deduplication_config(
             HttpDeduplicationConfig::default()
                 .with_ttl(std::time::Duration::from_millis(100))
@@ -413,7 +413,7 @@ async fn test_deduplication_ttl_expiration2() {
 async fn test_deduplication_without_request_id() {
     let state = AppState::new();
 
-    let config = Config::default()
+    let config = Config::new()
         .with_deduplication_config(
             HttpDeduplicationConfig::default()
                 .with_ttl(std::time::Duration::from_secs(60))
@@ -472,7 +472,7 @@ async fn test_deduplication_without_request_id() {
 async fn test_deduplication_with_post_requests() {
     let state = AppState::new();
 
-    let config = Config::default()
+    let config = Config::new()
         .with_deduplication_config(
             HttpDeduplicationConfig::default()
                 .with_ttl(std::time::Duration::from_secs(60))
@@ -537,7 +537,7 @@ async fn test_deduplication_with_post_requests() {
 async fn test_deduplication_different_paths_same_id() {
     let state = AppState::new();
 
-    let config = Config::default()
+    let config = Config::new()
         .with_deduplication_config(
             HttpDeduplicationConfig::default()
                 .with_ttl(std::time::Duration::from_secs(60))
@@ -600,7 +600,7 @@ async fn test_deduplication_disabled() {
     let state = AppState::new();
 
     // Deduplication disabled by default (config.http.deduplication = None)
-    let config = Config::default().with_excluded_middlewares(vec![HttpMiddleware::RateLimiting]);
+    let config = Config::new().with_excluded_middlewares(vec![HttpMiddleware::RateLimiting]);
     let app = FluentRouter::<AppState>::with_state(config, state.clone())
         .unwrap()
         .route("/counter", get(counter_handler))
@@ -655,7 +655,7 @@ async fn test_deduplication_disabled() {
 async fn test_deduplication_concurrent_requests() {
     let state = AppState::new();
 
-    let config = Config::default()
+    let config = Config::new()
         .with_deduplication_config(
             HttpDeduplicationConfig::default()
                 .with_ttl(std::time::Duration::from_secs(60))

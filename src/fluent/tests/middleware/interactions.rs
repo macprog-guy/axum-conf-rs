@@ -30,7 +30,7 @@ use axum::http::Method;
 #[tokio::test]
 async fn test_request_id_propagates_with_cors_headers() {
     use axum::http::Method;
-    let mut config = Config::default();
+    let mut config = Config::new();
     config.http.cors = Some(
         HttpCorsConfig::default()
             .with_allowed_origins(vec!["https://example.com".to_string()])
@@ -87,7 +87,7 @@ async fn test_request_id_propagates_with_cors_headers() {
 #[tokio::test]
 async fn test_request_id_preserved_on_duplicate_rejection() {
     use crate::HttpDeduplicationConfig;
-    let config = Config::default()
+    let config = Config::new()
         .with_deduplication_config(
             HttpDeduplicationConfig::default()
                 .with_ttl(Duration::from_secs(60))
@@ -160,7 +160,7 @@ async fn test_request_id_preserved_on_duplicate_rejection() {
 #[cfg(all(feature = "security-headers", feature = "cors"))]
 #[tokio::test]
 async fn test_security_headers_coexist_with_cors() {
-    let mut config = Config::default();
+    let mut config = Config::new();
     config.http.cors = Some(
         HttpCorsConfig::default()
             .with_allowed_origins(vec!["https://example.com".to_string()])
@@ -219,7 +219,7 @@ async fn test_security_headers_coexist_with_cors() {
 #[cfg(feature = "path-normalization")]
 #[tokio::test]
 async fn test_path_normalization_preserves_request_id() {
-    let mut config = Config::default();
+    let mut config = Config::new();
     config.http.trim_trailing_slash = true;
     config.http.middleware = Some(HttpMiddlewareConfig::Exclude(vec![
         HttpMiddleware::RateLimiting,
@@ -262,7 +262,7 @@ async fn test_path_normalization_preserves_request_id() {
 
 #[tokio::test]
 async fn test_timeout_preserves_request_id() {
-    let mut config = Config::default();
+    let mut config = Config::new();
     config.http.request_timeout = Some(Duration::from_secs(5));
     config.http.middleware = Some(HttpMiddlewareConfig::Exclude(vec![
         HttpMiddleware::RateLimiting,
@@ -302,7 +302,7 @@ async fn test_timeout_preserves_request_id() {
 
 #[tokio::test]
 async fn test_panic_handler_preserves_request_id() {
-    let mut config = Config::default();
+    let mut config = Config::new();
     config.http.middleware = Some(HttpMiddlewareConfig::Exclude(vec![
         HttpMiddleware::RateLimiting,
     ]));
@@ -367,7 +367,7 @@ async fn test_panic_handler_preserves_request_id() {
 #[cfg(all(feature = "cors", feature = "deduplication"))]
 #[tokio::test]
 async fn test_cors_headers_on_duplicate_rejection() {
-    let mut config = Config::default();
+    let mut config = Config::new();
     config.http.cors = Some(
         HttpCorsConfig::default()
             .with_allowed_origins(vec!["https://example.com".to_string()])
@@ -451,7 +451,7 @@ async fn test_cors_headers_on_duplicate_rejection() {
 ))]
 #[tokio::test]
 async fn test_full_middleware_stack() {
-    let mut config = Config::default();
+    let mut config = Config::new();
     config.http.cors = Some(
         HttpCorsConfig::default()
             .with_allowed_origins(vec!["https://example.com".to_string()])
@@ -529,7 +529,7 @@ async fn test_full_middleware_stack() {
 #[cfg(feature = "sensitive-headers")]
 #[tokio::test]
 async fn test_sensitive_headers_do_not_affect_request_id() {
-    let mut config = Config::default();
+    let mut config = Config::new();
     config.http.middleware = Some(HttpMiddlewareConfig::Exclude(vec![
         HttpMiddleware::RateLimiting,
     ]));
@@ -572,7 +572,7 @@ async fn test_sensitive_headers_do_not_affect_request_id() {
 #[cfg(feature = "concurrency-limit")]
 #[tokio::test]
 async fn test_concurrency_limit_preserves_request_id() {
-    let mut config = Config::default();
+    let mut config = Config::new();
     config.http.max_concurrent_requests = 100;
     config.http.middleware = Some(HttpMiddlewareConfig::Exclude(vec![
         HttpMiddleware::RateLimiting,
@@ -613,7 +613,7 @@ async fn test_concurrency_limit_preserves_request_id() {
 #[cfg(all(feature = "cors", feature = "security-headers"))]
 #[tokio::test]
 async fn test_multiple_middleware_can_be_disabled() {
-    let config = Config::default().with_excluded_middlewares(vec![
+    let config = Config::new().with_excluded_middlewares(vec![
         HttpMiddleware::RateLimiting,
         HttpMiddleware::RequestId,
         HttpMiddleware::RequestDeduplication,
@@ -661,7 +661,7 @@ async fn test_multiple_middleware_can_be_disabled() {
 #[tokio::test]
 async fn test_middleware_order_cors_before_dedup() {
     // CORS should handle OPTIONS preflight before deduplication checks
-    let mut config = Config::default();
+    let mut config = Config::new();
     config.http.cors = Some(
         HttpCorsConfig::default()
             .with_allowed_origins(vec!["https://example.com".to_string()])
@@ -744,7 +744,7 @@ async fn test_middleware_order_cors_before_dedup() {
 #[cfg(feature = "api-versioning")]
 #[tokio::test]
 async fn test_api_versioning_coexists_with_request_id() {
-    let mut config = Config::default();
+    let mut config = Config::new();
     config.http.middleware = Some(HttpMiddlewareConfig::Exclude(vec![
         HttpMiddleware::RateLimiting,
     ]));

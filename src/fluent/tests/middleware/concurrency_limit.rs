@@ -14,7 +14,7 @@ use tower::Service;
 
 #[tokio::test]
 async fn test_setup_concurrency_limit_with_default() {
-    let config = Config::default(); // Default max_concurrent_requests is 100 in test config
+    let config = Config::new(); // Default max_concurrent_requests is 100 in test config
 
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
@@ -33,7 +33,7 @@ async fn test_setup_concurrency_limit_with_default() {
 
 #[tokio::test]
 async fn test_setup_concurrency_limit_with_custom_value() {
-    let config = Config::default().with_max_concurrent_requests(50);
+    let config = Config::new().with_max_concurrent_requests(50);
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route("/test", get(|| async { "OK" })))
@@ -51,7 +51,7 @@ async fn test_setup_concurrency_limit_with_custom_value() {
 
 #[tokio::test]
 async fn test_setup_concurrency_limit_enforces_limit() {
-    let config = Config::default().with_max_concurrent_requests(2); // Very low limit for testing
+    let config = Config::new().with_max_concurrent_requests(2); // Very low limit for testing
     // Use a semaphore to control when requests complete
     let sem = Arc::new(Semaphore::new(0));
     let sem_clone = sem.clone();
@@ -103,7 +103,7 @@ async fn test_setup_concurrency_limit_enforces_limit() {
 
 #[tokio::test]
 async fn test_setup_concurrency_limit_multiple_routes() {
-    let config = Config::default().with_max_concurrent_requests(100);
+    let config = Config::new().with_max_concurrent_requests(100);
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
         .merge(
@@ -153,7 +153,7 @@ async fn test_setup_concurrency_limit_multiple_routes() {
 
 #[tokio::test]
 async fn test_setup_concurrency_limit_middleware_disabled() {
-    let config = Config::default()
+    let config = Config::new()
         .with_max_concurrent_requests(2)
         .with_excluded_middlewares(vec![HttpMiddleware::ConcurrencyLimit]);
     let fluent_router = FluentRouter::without_state(config)
@@ -174,7 +174,7 @@ async fn test_setup_concurrency_limit_middleware_disabled() {
 
 #[tokio::test]
 async fn test_setup_concurrency_limit_with_fast_requests() {
-    let config = Config::default().with_max_concurrent_requests(10);
+    let config = Config::new().with_max_concurrent_requests(10);
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route(
@@ -202,7 +202,7 @@ async fn test_setup_concurrency_limit_with_fast_requests() {
 
 #[tokio::test]
 async fn test_setup_concurrency_limit_high_limit() {
-    let config = Config::default().with_max_concurrent_requests(10000); // Very high limit
+    let config = Config::new().with_max_concurrent_requests(10000); // Very high limit
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route("/test", get(|| async { "OK" })))
@@ -225,7 +225,7 @@ async fn test_setup_concurrency_limit_high_limit() {
 
 #[tokio::test]
 async fn test_setup_concurrency_limit_with_streaming_response() {
-    let config = Config::default().with_max_concurrent_requests(5);
+    let config = Config::new().with_max_concurrent_requests(5);
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route(

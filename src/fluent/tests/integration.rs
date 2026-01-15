@@ -19,14 +19,14 @@ use tower_http::compression::CompressionLayer;
 
 #[tokio::test]
 async fn test_fluent_router_new() {
-    let config = Config::default();
+    let config = Config::new();
     let fluent_router = FluentRouter::without_state(config);
     assert!(fluent_router.is_ok());
 }
 
 #[tokio::test]
 async fn test_fluent_router_into_inner() {
-    let config = Config::default();
+    let config = Config::new();
     let fluent_router = FluentRouter::without_state(config).unwrap();
     let router: Router = fluent_router.into_inner();
 
@@ -36,7 +36,7 @@ async fn test_fluent_router_into_inner() {
 
 #[tokio::test]
 async fn test_fluent_router_nest() {
-    let config = Config::default();
+    let config = Config::new();
     let nested_router = Router::new().route("/nested", get(nested_handler));
 
     let fluent_router = FluentRouter::without_state(config)
@@ -65,7 +65,7 @@ async fn test_fluent_router_nest() {
 
 #[tokio::test]
 async fn test_fluent_router_merge() {
-    let config = Config::default();
+    let config = Config::new();
     let other_router = Router::new().route("/merged", get(|| async { "merged response" }));
 
     let fluent_router = FluentRouter::without_state(config)
@@ -95,7 +95,7 @@ async fn test_fluent_router_merge() {
 #[cfg(feature = "compression")]
 #[tokio::test]
 async fn test_fluent_router_layer() {
-    let config = Config::default();
+    let config = Config::new();
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
         .layer(CompressionLayer::new());
@@ -108,7 +108,7 @@ async fn test_fluent_router_layer() {
 
 #[tokio::test]
 async fn test_fluent_router_route_layer() {
-    let config = Config::default();
+    let config = Config::new();
     let test_router = Router::new().route("/test", get(|| async { "test" }));
 
     let fluent_router = FluentRouter::without_state(config)
@@ -130,7 +130,7 @@ async fn test_fluent_router_route_layer() {
 #[cfg(feature = "compression")]
 #[tokio::test]
 async fn test_fluent_router_method_chaining() {
-    let config = Config::default();
+    let config = Config::new();
     let nested_router = Router::new().route("/nested", get(nested_handler));
     let other_router = Router::new().route("/merged", get(|| async { "merged" }));
 
@@ -172,7 +172,7 @@ async fn test_fluent_router_method_chaining() {
 
 #[tokio::test]
 async fn test_fluent_router_setup_methods() {
-    let config = Config::default();
+    let config = Config::new();
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
         .setup_public_files()
@@ -189,7 +189,7 @@ async fn test_fluent_router_setup_methods() {
 #[tokio::test]
 async fn test_fluent_router_with_invalid_config() {
     // Create a config that will fail validation (if validation exists)
-    let config = Config::default(); // Depending on validation logic, this might pass or fail
+    let config = Config::new(); // Depending on validation logic, this might pass or fail
     let result = FluentRouter::without_state(config);
 
     // This test demonstrates handling of potential validation failures
@@ -201,7 +201,7 @@ async fn test_fluent_router_with_invalid_config() {
 async fn test_fluent_router_nest_service() {
     use tower::service_fn;
 
-    let config = Config::default();
+    let config = Config::new();
     let service = service_fn(|_req: Request<Body>| async {
         Ok::<Response, Infallible>((StatusCode::OK, "service response").into_response())
     });
@@ -234,7 +234,7 @@ async fn test_fluent_router_nest_service() {
 async fn test_fluent_router_route_service() {
     use tower::service_fn;
 
-    let config = Config::default();
+    let config = Config::new();
     let service = service_fn(|_req: Request<Body>| async {
         Ok::<Response, Infallible>((StatusCode::OK, "route service response").into_response())
     });

@@ -22,7 +22,7 @@
 //! curl http://localhost:3000/metrics
 //! ```
 
-use axum::{routing::get, Json};
+use axum::{Json, routing::get};
 use axum_conf::{Config, FluentRouter, Result};
 use serde::Serialize;
 
@@ -102,9 +102,7 @@ mod chrono {
     impl DateTime {
         pub fn to_rfc3339(&self) -> String {
             use std::time::{SystemTime, UNIX_EPOCH};
-            let duration = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap();
+            let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
             format!("{}", duration.as_secs())
         }
     }

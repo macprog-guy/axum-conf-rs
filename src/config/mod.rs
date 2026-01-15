@@ -19,6 +19,44 @@
 //! - `LoggingConfig` for logging and tracing settings
 //! - `StaticDirConfig` for static file serving settings
 //!
+//! # Extending Configuration
+//!
+//! The `Config` struct supports application-specific configuration through a generic
+//! type parameter. Custom fields are flattened into the root TOML structure:
+//!
+//! ```rust
+//! use axum_conf::Config;
+//! use serde::Deserialize;
+//!
+//! #[derive(Debug, Clone, Default, Deserialize)]
+//! struct MyAppConfig {
+//!     #[serde(default)]
+//!     api_key: String,
+//!     #[serde(default)]
+//!     feature_enabled: bool,
+//! }
+//!
+//! // Root-level fields must come BEFORE section headers in TOML
+//! let config: Config<MyAppConfig> = r#"
+//! # Application-specific fields at root level
+//! api_key = "secret"
+//! feature_enabled = true
+//!
+//! [http]
+//! bind_port = 3000
+//! "#.parse().unwrap();
+//!
+//! assert_eq!(config.app.api_key, "secret");
+//! assert!(config.app.feature_enabled);
+//! ```
+//!
+//! For applications that don't need custom configuration, use `Config::new()`:
+//!
+//! ```rust
+//! use axum_conf::Config;
+//!
+//! let config = Config::new();
+//! ```
 //!
 //!
 mod http;
@@ -46,12 +84,52 @@ pub use byte_unit::Byte;
 
 use {
     crate::{Error, Result, utils::replace_handlebars_with_env},
-    serde::Deserialize,
+    serde::{Deserialize, de::DeserializeOwned},
     std::{env, fs, str::FromStr, time::Duration},
 };
 
+/// Root configuration structure for axum-conf applications.
+///
+/// # Generic Parameter
+///
+/// The type parameter `T` allows applications to extend configuration with custom fields.
+/// These fields are flattened into the root TOML structure using `#[serde(flatten)]`.
+///
+/// - Use `Config<()>` (the default) for applications without custom config
+/// - Use `Config<YourType>` where `YourType: DeserializeOwned + Clone + Default`
+///
+/// # Example with Custom Config
+///
+/// ```rust
+/// use axum_conf::Config;
+/// use serde::Deserialize;
+///
+/// #[derive(Debug, Clone, Default, Deserialize)]
+/// struct AppSettings {
+///     #[serde(default)]
+///     cache_ttl_secs: u64,
+///     #[serde(default)]
+///     debug_mode: bool,
+/// }
+///
+/// // Root-level fields must come BEFORE section headers in TOML
+/// let toml = r#"
+/// cache_ttl_secs = 300
+/// debug_mode = false
+///
+/// [http]
+/// bind_port = 8080
+/// "#;
+///
+/// let config: Config<AppSettings> = toml.parse().unwrap();
+/// println!("Cache TTL: {}", config.app.cache_ttl_secs);
+/// ```
 #[derive(Debug, Clone, Deserialize)]
-pub struct Config {
+#[serde(bound = "T: DeserializeOwned")]
+pub struct Config<T = ()>
+where
+    T: Clone + Default,
+{
     #[serde(default)]
     pub http: HttpConfig,
     #[cfg(feature = "postgres")]
@@ -62,9 +140,21 @@ pub struct Config {
     #[cfg(feature = "circuit-breaker")]
     #[serde(default)]
     pub circuit_breaker: CircuitBreakerConfig,
+    /// Application-specific configuration.
+    ///
+    /// Fields from this type are flattened into the root TOML structure,
+    /// meaning they appear alongside `[http]`, `[database]`, etc. rather
+    /// than under an `[app]` section.
+    ///
+    /// Defaults to `()` (unit type) when no custom configuration is needed.
+    #[serde(flatten, default)]
+    pub app: T,
 }
 
-impl Default for Config {
+impl<T> Default for Config<T>
+where
+    T: DeserializeOwned + Clone + Default,
+{
     ///
     /// Creates a default configuration.
     /// This will attempt to load configuration from the file based on the RUST_ENV
@@ -82,17 +172,39 @@ impl Default for Config {
                 logging: LoggingConfig::default(),
                 #[cfg(feature = "circuit-breaker")]
                 circuit_breaker: CircuitBreakerConfig::default(),
+                app: T::default(),
             },
         }
     }
 }
 
-impl Config {
+impl Config<()> {
+    /// Creates a new default configuration without application-specific fields.
+    ///
+    /// This is a convenience method equivalent to `Config::<()>::default()` but
+    /// avoids requiring explicit type annotations.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use axum_conf::Config;
+    ///
+    /// let config = Config::new();
+    /// ```
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl<T> Config<T>
+where
+    T: DeserializeOwned + Clone + Default,
+{
     ///
     /// Loads the configuration from a file based on the RUST_ENV environment variable.
     /// If RUST_ENV is not set, defaults to "prod".
     ///
-    pub fn from_rust_env() -> Result<Config> {
+    pub fn from_rust_env() -> Result<Config<T>> {
         Self::from_toml_file(env::var("RUST_ENV")?)
     }
 
@@ -102,7 +214,7 @@ impl Config {
     /// The configuration file is expected to be located at "config/{env}.toml"
     /// where {env} is the provided environment name (e.g., "dev", "prod").
     ///
-    pub fn from_toml_file(env: impl AsRef<str>) -> Result<Config> {
+    pub fn from_toml_file(env: impl AsRef<str>) -> Result<Config<T>> {
         let path = format!("config/{}.toml", env.as_ref());
         let text = fs::read_to_string(path)?;
         Self::from_toml(&text)
@@ -111,7 +223,7 @@ impl Config {
     ///
     /// Parses a configuration string in TOML format into a Config struct.
     ///
-    pub fn from_toml(toml_str: &str) -> Result<Config> {
+    pub fn from_toml(toml_str: &str) -> Result<Config<T>> {
         replace_handlebars_with_env(toml_str).parse()
     }
 
@@ -260,6 +372,27 @@ impl Config {
         self
     }
 
+    /// Sets the application-specific configuration.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use axum_conf::Config;
+    /// use serde::Deserialize;
+    ///
+    /// #[derive(Debug, Clone, Default, Deserialize)]
+    /// struct MyConfig { value: i32 }
+    ///
+    /// let config: Config<MyConfig> = Config::new()
+    ///     .with_app(MyConfig { value: 42 });
+    ///
+    /// assert_eq!(config.app.value, 42);
+    /// ```
+    pub fn with_app(mut self, app: T) -> Self {
+        self.app = app;
+        self
+    }
+
     /// Ensures that the configuration is valid.
     /// Most configuration values are either optional or have sensible defaults.
     /// Some are required and since and here we ensure that those required values
@@ -343,11 +476,14 @@ impl Config {
 /// into a Config struct by substituting the environment variables and then
 /// parsing the resulting TOML.
 ///
-impl FromStr for Config {
+impl<T> FromStr for Config<T>
+where
+    T: DeserializeOwned + Clone + Default,
+{
     type Err = Error;
     fn from_str(s: &str) -> Result<Self> {
         let config_file = replace_handlebars_with_env(s);
-        let config = toml::from_str::<Config>(&config_file)?;
+        let config = toml::from_str::<Config<T>>(&config_file)?;
         Ok(config)
     }
 }
@@ -496,7 +632,7 @@ max_payload_size_bytes = "1KiB"
     #[test]
     fn test_config_builder_matches_toml_equivalent() {
         // Build a configuration using builder methods
-        let builder_config = Config::default()
+        let builder_config = Config::new()
             .with_bind_addr("0.0.0.0")
             .with_bind_port(8080)
             .with_max_concurrent_requests(2048)
@@ -604,7 +740,7 @@ format = "compact"
     #[test]
     fn test_config_builder_chaining() {
         // Test that builder methods can be chained fluently
-        let config = Config::default()
+        let config = Config::new()
             .with_bind_addr("127.0.0.1")
             .with_bind_port(3000)
             .with_compression(true)
@@ -620,7 +756,7 @@ format = "compact"
     #[test]
     fn test_config_builder_partial_configuration() {
         // Test that we can use builder methods to override just some defaults
-        let config = Config::default()
+        let config = Config::new()
             .with_bind_port(9000)
             .with_max_concurrent_requests(500);
 
@@ -641,7 +777,7 @@ format = "compact"
             env::set_var("RUST_ENV", "test");
         }
 
-        let result = Config::from_rust_env();
+        let result = Config::<()>::from_rust_env();
         assert!(
             result.is_ok(),
             "Expected configuration file to load successfully"
@@ -651,7 +787,7 @@ format = "compact"
             env::remove_var("RUST_ENV");
         }
 
-        let result = Config::from_rust_env();
+        let result = Config::<()>::from_rust_env();
         assert!(
             result.is_err(),
             "Expected error when loading non-existent default config file"
@@ -661,7 +797,7 @@ format = "compact"
     #[test]
     #[cfg(feature = "postgres")]
     fn test_validate_empty_database_url() {
-        let mut config = Config::default();
+        let mut config = Config::new();
         config.database.url = "".to_string();
 
         let result = config.validate();
@@ -685,7 +821,7 @@ format = "compact"
         use crate::config::http::HttpOidcConfig;
         use crate::utils::Sensitive;
 
-        let mut config = Config::default();
+        let mut config = Config::new();
         config.http.oidc = Some(HttpOidcConfig {
             issuer_url: "".to_string(),
             realm: "test".to_string(),
@@ -707,7 +843,7 @@ format = "compact"
         use crate::config::http::HttpOidcConfig;
         use crate::utils::Sensitive;
 
-        let mut config = Config::default();
+        let mut config = Config::new();
         config.http.oidc = Some(HttpOidcConfig {
             issuer_url: "https://example.com".to_string(),
             realm: "test".to_string(),
@@ -729,7 +865,7 @@ format = "compact"
         use crate::config::http::HttpOidcConfig;
         use crate::utils::Sensitive;
 
-        let mut config = Config::default();
+        let mut config = Config::new();
         config.http.oidc = Some(HttpOidcConfig {
             issuer_url: "https://example.com".to_string(),
             realm: "test".to_string(),
@@ -749,7 +885,7 @@ format = "compact"
     fn test_validate_static_dir_fallback_cannot_be_protected() {
         use crate::config::http::{StaticDirConfig, StaticDirRoute};
 
-        let mut config = Config::default();
+        let mut config = Config::new();
         config.http.directories = vec![StaticDirConfig {
             directory: "./dist".to_string(),
             route: StaticDirRoute::Fallback(true),
@@ -768,7 +904,7 @@ format = "compact"
     fn test_validate_static_dir_with_route_can_be_protected() {
         use crate::config::http::{StaticDirConfig, StaticDirRoute};
 
-        let mut config = Config::default();
+        let mut config = Config::new();
         #[cfg(feature = "postgres")]
         {
             config.database.url = "postgres://localhost/test".to_string();
@@ -791,7 +927,7 @@ format = "compact"
     fn test_validate_static_dir_fallback_not_protected() {
         use crate::config::http::{StaticDirConfig, StaticDirRoute};
 
-        let mut config = Config::default();
+        let mut config = Config::new();
         #[cfg(feature = "postgres")]
         {
             config.database.url = "postgres://localhost/test".to_string();
@@ -816,7 +952,7 @@ format = "compact"
         use crate::config::http::HttpOidcConfig;
         use crate::utils::Sensitive;
 
-        let mut config = Config::default();
+        let mut config = Config::new();
         #[cfg(feature = "postgres")]
         {
             config.database.url = "postgres://localhost/test".to_string();
@@ -839,7 +975,7 @@ format = "compact"
     #[test]
     #[cfg(feature = "postgres")]
     fn test_validate_valid_database_config() {
-        let mut config = Config::default();
+        let mut config = Config::new();
         config.database.url = "postgres://user:pass@localhost:5432/mydb".to_string();
 
         let result = config.validate();
@@ -851,7 +987,7 @@ format = "compact"
 
     #[test]
     fn test_validate_empty_config() {
-        let config = Config::default();
+        let config = Config::new();
         // Default config may or may not validate depending on feature flags
         // With postgres feature, default might have empty DB URL which would fail
         #[cfg(feature = "postgres")]
@@ -873,7 +1009,7 @@ format = "compact"
     fn test_validate_multiple_static_dirs() {
         use crate::config::http::{StaticDirConfig, StaticDirRoute};
 
-        let mut config = Config::default();
+        let mut config = Config::new();
         #[cfg(feature = "postgres")]
         {
             config.database.url = "postgres://localhost/test".to_string();
@@ -903,7 +1039,7 @@ format = "compact"
     #[test]
     #[cfg(feature = "postgres")]
     fn test_validate_invalid_database_url_format() {
-        let mut config = Config::default();
+        let mut config = Config::new();
         config.database.url = "not-a-valid-url".to_string();
 
         let result = config.validate();
@@ -924,7 +1060,7 @@ format = "compact"
     #[test]
     #[cfg(feature = "postgres")]
     fn test_validate_database_url_whitespace_only() {
-        let mut config = Config::default();
+        let mut config = Config::new();
         config.database.url = "   ".to_string();
 
         let result = config.validate();
@@ -945,7 +1081,7 @@ format = "compact"
     #[test]
     #[cfg(feature = "postgres")]
     fn test_validate_database_zero_pool_size() {
-        let mut config = Config::default();
+        let mut config = Config::new();
         config.database.url = "postgres://localhost/test".to_string();
         config.database.max_pool_size = 0;
 
@@ -967,7 +1103,7 @@ format = "compact"
     #[test]
     #[cfg(feature = "postgres")]
     fn test_database_config_error_contains_helpful_message() {
-        let mut config = Config::default();
+        let mut config = Config::new();
         config.database.url = "".to_string();
 
         let result = config.validate();
@@ -988,7 +1124,7 @@ format = "compact"
         use crate::config::http::HttpOidcConfig;
         use crate::utils::Sensitive;
 
-        let mut config = Config::default();
+        let mut config = Config::new();
         #[cfg(feature = "postgres")]
         {
             config.database.url = "postgres://localhost/test".to_string();
@@ -1014,7 +1150,7 @@ format = "compact"
         use crate::config::http::HttpOidcConfig;
         use crate::utils::Sensitive;
 
-        let mut config = Config::default();
+        let mut config = Config::new();
         #[cfg(feature = "postgres")]
         {
             config.database.url = "postgres://localhost/test".to_string();
@@ -1040,7 +1176,7 @@ format = "compact"
         use crate::config::http::HttpOidcConfig;
         use crate::utils::Sensitive;
 
-        let mut config = Config::default();
+        let mut config = Config::new();
         #[cfg(feature = "postgres")]
         {
             config.database.url = "postgres://localhost/test".to_string();
@@ -1064,7 +1200,7 @@ format = "compact"
     fn test_validate_static_dir_empty_directory_path() {
         use crate::config::http::{StaticDirConfig, StaticDirRoute};
 
-        let mut config = Config::default();
+        let mut config = Config::new();
         #[cfg(feature = "postgres")]
         {
             config.database.url = "postgres://localhost/test".to_string();
@@ -1087,7 +1223,7 @@ format = "compact"
     fn test_validate_static_dir_empty_route_path() {
         use crate::config::http::{StaticDirConfig, StaticDirRoute};
 
-        let mut config = Config::default();
+        let mut config = Config::new();
         #[cfg(feature = "postgres")]
         {
             config.database.url = "postgres://localhost/test".to_string();
@@ -1110,7 +1246,7 @@ format = "compact"
     fn test_validate_static_dir_multiple_fallbacks() {
         use crate::config::http::{StaticDirConfig, StaticDirRoute};
 
-        let mut config = Config::default();
+        let mut config = Config::new();
         #[cfg(feature = "postgres")]
         {
             config.database.url = "postgres://localhost/test".to_string();
@@ -1141,7 +1277,7 @@ format = "compact"
     fn test_validate_static_dir_negative_cache_max_age() {
         use crate::config::http::{StaticDirConfig, StaticDirRoute};
 
-        let mut config = Config::default();
+        let mut config = Config::new();
         #[cfg(feature = "postgres")]
         {
             config.database.url = "postgres://localhost/test".to_string();
@@ -1165,7 +1301,7 @@ format = "compact"
 
     #[test]
     fn test_validate_bind_port_zero() {
-        let mut config = Config::default();
+        let mut config = Config::new();
         #[cfg(feature = "postgres")]
         {
             config.database.url = "postgres://localhost/test".to_string();
@@ -1182,7 +1318,7 @@ format = "compact"
 
     #[test]
     fn test_validate_empty_bind_addr() {
-        let mut config = Config::default();
+        let mut config = Config::new();
         #[cfg(feature = "postgres")]
         {
             config.database.url = "postgres://localhost/test".to_string();
@@ -1198,7 +1334,7 @@ format = "compact"
 
     #[test]
     fn test_validate_invalid_bind_addr_format() {
-        let mut config = Config::default();
+        let mut config = Config::new();
         #[cfg(feature = "postgres")]
         {
             config.database.url = "postgres://localhost/test".to_string();
@@ -1214,7 +1350,7 @@ format = "compact"
 
     #[test]
     fn test_validate_max_concurrent_requests_zero() {
-        let mut config = Config::default();
+        let mut config = Config::new();
         #[cfg(feature = "postgres")]
         {
             config.database.url = "postgres://localhost/test".to_string();
@@ -1232,7 +1368,7 @@ format = "compact"
     fn test_validate_conflicting_middleware_config() {
         use crate::config::http::HttpMiddlewareConfig;
 
-        let mut config = Config::default();
+        let mut config = Config::new();
         #[cfg(feature = "postgres")]
         {
             config.database.url = "postgres://localhost/test".to_string();
@@ -1252,7 +1388,7 @@ format = "compact"
     fn test_validate_cors_empty_allowed_origins() {
         use crate::config::http::HttpCorsConfig;
 
-        let mut config = Config::default();
+        let mut config = Config::new();
         #[cfg(feature = "postgres")]
         {
             config.database.url = "postgres://localhost/test".to_string();
@@ -1265,6 +1401,118 @@ format = "compact"
             result.is_ok(),
             "Empty allowed_origins should be valid (defaults to permissive)"
         );
+    }
+
+    // ========================================================================
+    // Tests for generic/extensible configuration
+    // ========================================================================
+
+    #[test]
+    fn test_generic_config_parse_with_custom_type() {
+        use serde::Deserialize;
+
+        #[derive(Debug, Clone, Default, Deserialize)]
+        struct AppSettings {
+            #[serde(default)]
+            api_key: String,
+            #[serde(default)]
+            feature_enabled: bool,
+        }
+
+        // Root-level custom fields must come BEFORE section headers in TOML
+        let toml_str = r#"
+api_key = "my-secret-key"
+feature_enabled = true
+
+[http]
+bind_port = 3000
+max_payload_size_bytes = "1KiB"
+"#;
+
+        let config: Config<AppSettings> = toml_str.parse().expect("Should parse");
+        assert_eq!(config.app.api_key, "my-secret-key");
+        assert!(config.app.feature_enabled);
+        assert_eq!(config.http.bind_port, 3000);
+    }
+
+    #[test]
+    fn test_generic_config_default_with_custom_type() {
+        use serde::Deserialize;
+
+        #[derive(Debug, Clone, Deserialize)]
+        struct AppSettings {
+            #[serde(default = "default_api_key")]
+            api_key: String,
+        }
+
+        fn default_api_key() -> String {
+            "default-key".to_string()
+        }
+
+        impl Default for AppSettings {
+            fn default() -> Self {
+                Self {
+                    api_key: default_api_key(),
+                }
+            }
+        }
+
+        // Parse without the custom field - should use default
+        let toml_str = r#"
+[http]
+bind_port = 3000
+max_payload_size_bytes = "1KiB"
+"#;
+
+        let config: Config<AppSettings> = toml_str.parse().expect("Should parse");
+        assert_eq!(config.app.api_key, "default-key");
+    }
+
+    #[test]
+    fn test_generic_config_with_app_builder() {
+        use serde::Deserialize;
+
+        #[derive(Debug, Clone, Default, Deserialize)]
+        struct AppSettings {
+            value: i32,
+        }
+
+        let config: Config<AppSettings> = Config::default().with_app(AppSettings { value: 42 });
+        assert_eq!(config.app.value, 42);
+    }
+
+    #[test]
+    fn test_config_new_creates_unit_config() {
+        let config = Config::new();
+        assert_eq!(config.app, ());
+        assert_eq!(config.http.bind_addr, "127.0.0.1");
+    }
+
+    #[test]
+    fn test_generic_config_flattens_custom_fields() {
+        use serde::Deserialize;
+
+        #[derive(Debug, Clone, Default, Deserialize, PartialEq)]
+        struct CustomConfig {
+            #[serde(default)]
+            custom_field: String,
+            #[serde(default)]
+            another_field: u32,
+        }
+
+        // Root-level fields must come BEFORE section headers in TOML
+        let toml_str = r#"
+custom_field = "custom_value"
+another_field = 123
+
+[http]
+bind_port = 8080
+max_payload_size_bytes = "1KiB"
+"#;
+
+        let config: Config<CustomConfig> = toml_str.parse().expect("Should parse");
+        assert_eq!(config.app.custom_field, "custom_value");
+        assert_eq!(config.app.another_field, 123);
     }
 
     // ========================================================================

@@ -12,7 +12,7 @@ use tower::Service;
 
 #[tokio::test]
 async fn test_setup_timeout_with_slow_handler() {
-    let config = Config::default()
+    let config = Config::new()
         .with_request_timeout(Duration::from_millis(100))
         .with_excluded_middlewares(vec![HttpMiddleware::RateLimiting]);
     let fluent_router = FluentRouter::without_state(config)
@@ -39,7 +39,7 @@ async fn test_setup_timeout_with_slow_handler() {
 
 #[tokio::test]
 async fn test_setup_timeout_with_fast_handler() {
-    let config = Config::default()
+    let config = Config::new()
         .with_request_timeout(Duration::from_millis(200))
         .with_excluded_middlewares(vec![HttpMiddleware::RateLimiting]);
     let fluent_router = FluentRouter::without_state(config)
@@ -71,7 +71,7 @@ async fn test_setup_timeout_with_fast_handler() {
 
 #[tokio::test]
 async fn test_setup_timeout_disabled_by_default() {
-    let config = Config::default(); // No request_timeout configured
+    let config = Config::new(); // No request_timeout configured
 
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
@@ -102,7 +102,7 @@ async fn test_setup_timeout_disabled_by_default() {
 
 #[tokio::test]
 async fn test_setup_timeout_middleware_disabled() {
-    let config = Config::default()
+    let config = Config::new()
         .with_request_timeout(Duration::from_millis(100))
         .with_excluded_middlewares(vec![HttpMiddleware::Timeout, HttpMiddleware::RateLimiting]);
     let fluent_router = FluentRouter::without_state(config)
@@ -129,7 +129,7 @@ async fn test_setup_timeout_middleware_disabled() {
 
 #[tokio::test]
 async fn test_setup_timeout_with_multiple_routes() {
-    let config = Config::default()
+    let config = Config::new()
         .with_request_timeout(Duration::from_millis(150))
         .with_excluded_middlewares(vec![HttpMiddleware::RateLimiting]);
     let fluent_router = FluentRouter::without_state(config)
@@ -185,7 +185,7 @@ async fn test_setup_timeout_with_multiple_routes() {
 
 #[tokio::test]
 async fn test_setup_timeout_exactly_at_limit() {
-    let config = Config::default()
+    let config = Config::new()
         .with_request_timeout(Duration::from_millis(100))
         .with_excluded_middlewares(vec![HttpMiddleware::RateLimiting]);
     let fluent_router = FluentRouter::without_state(config)

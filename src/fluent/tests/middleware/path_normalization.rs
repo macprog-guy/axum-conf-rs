@@ -11,7 +11,7 @@ use tower_http::normalize_path::NormalizePathLayer;
 
 #[tokio::test]
 async fn test_path_normalization_removes_trailing_slash() {
-    let config = Config::default();
+    let config = Config::new();
     let router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route("/users", get(|| async { "users" })))
@@ -39,7 +39,7 @@ async fn test_path_normalization_removes_trailing_slash() {
 
 #[tokio::test]
 async fn test_path_normalization_without_trailing_slash_unchanged() {
-    let config = Config::default();
+    let config = Config::new();
     let router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route("/products", get(|| async { "products" })))
@@ -62,7 +62,7 @@ async fn test_path_normalization_without_trailing_slash_unchanged() {
 
 #[tokio::test]
 async fn test_path_normalization_nested_paths() {
-    let config = Config::default();
+    let config = Config::new();
     let router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route("/api/v1/users", get(|| async { "nested" })))
@@ -85,7 +85,7 @@ async fn test_path_normalization_nested_paths() {
 
 #[tokio::test]
 async fn test_path_normalization_with_query_string() {
-    let config = Config::default();
+    let config = Config::new();
     let router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route("/search", get(|| async { "search" })))
@@ -108,7 +108,7 @@ async fn test_path_normalization_with_query_string() {
 
 #[tokio::test]
 async fn test_path_normalization_with_path_parameters() {
-    let config = Config::default();
+    let config = Config::new();
     let router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route("/users/{id}", get(|| async { "user detail" })))
@@ -132,7 +132,7 @@ async fn test_path_normalization_with_path_parameters() {
 #[tokio::test]
 async fn test_path_normalization_disabled() {
     let config =
-        Config::default().with_excluded_middlewares(vec![HttpMiddleware::PathNormalization]);
+        Config::new().with_excluded_middlewares(vec![HttpMiddleware::PathNormalization]);
     let router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route("/test", get(|| async { "test" })))
@@ -155,7 +155,7 @@ async fn test_path_normalization_disabled() {
 
 #[tokio::test]
 async fn test_path_normalization_preserves_multiple_routes() {
-    let config = Config::default();
+    let config = Config::new();
     let router = FluentRouter::without_state(config)
         .unwrap()
         .merge(
@@ -195,7 +195,7 @@ async fn test_path_normalization_preserves_multiple_routes() {
 
 #[tokio::test]
 async fn test_path_normalization_different_http_methods() {
-    let config = Config::default();
+    let config = Config::new();
     use axum::routing::{delete, post};
 
     let router = FluentRouter::without_state(config)

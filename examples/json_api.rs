@@ -22,9 +22,9 @@
 //! ```
 
 use axum::{
+    Json,
     extract::{Path, State},
     routing::get,
-    Json,
 };
 use axum_conf::{Config, Error, FluentRouter, Result};
 use serde::{Deserialize, Serialize};

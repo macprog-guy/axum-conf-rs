@@ -201,6 +201,26 @@ max_pool_size = 10
 format = "json"
 ```
 
+## Custom Tracing Layers
+
+The default `setup_tracing()` configures logging based on your `LoggingConfig`. When you need additional tracing layers (OpenTelemetry, file appenders, custom filters), use `setup_tracing_with()`:
+
+```rust
+use axum_conf::Config;
+use tracing_subscriber::layer::SubscriberExt;
+
+let config = Config::default();
+
+// Add custom layers while keeping the configured fmt layer and env filter
+config.setup_tracing_with(|subscriber| {
+    subscriber
+        .with(tracing_opentelemetry::layer().with_tracer(tracer))
+        .with(my_file_appender_layer)
+});
+```
+
+The callback receives a `TracingBase` subscriber with the fmt layer (respecting your `logging.format` setting) and `EnvFilter` already applied. Add your layers with `.with()` and return the result.
+
 ## Documentation
 
 | Guide | Description |

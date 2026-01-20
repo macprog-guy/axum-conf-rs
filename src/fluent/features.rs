@@ -44,6 +44,7 @@ where
             .with_same_site(SameSite::Lax)
             .with_expiry(Expiry::OnInactivity(CookieDuration::seconds(3600)));
         self.inner = self.inner.layer(session_layer);
+        tracing::trace!("Session middleware enabled");
         self
     }
 
@@ -67,10 +68,12 @@ where
     #[must_use]
     pub fn setup_path_normalization(mut self) -> Self {
         if !self.is_middleware_enabled(HttpMiddleware::PathNormalization) {
+            tracing::trace!("PathNormalization middleware skipped (disabled in config)");
             return self;
         }
 
         self.inner = self.inner.layer(NormalizePathLayer::trim_trailing_slash());
+        tracing::trace!("PathNormalization middleware enabled");
         self
     }
 
@@ -102,6 +105,7 @@ where
     pub fn setup_timeout(mut self) -> Self {
         // Skip if timeout middleware is disabled
         if !self.is_middleware_enabled(HttpMiddleware::Timeout) {
+            tracing::trace!("Timeout middleware skipped (disabled in config)");
             return self;
         }
 
@@ -110,6 +114,7 @@ where
                 StatusCode::REQUEST_TIMEOUT,
                 timeout,
             ));
+            tracing::trace!(timeout = ?timeout, "Timeout middleware enabled");
         }
         self
     }
@@ -170,9 +175,11 @@ where
     #[must_use]
     pub fn setup_api_versioning(mut self, default_version: u32) -> Self {
         if !self.is_middleware_enabled(HttpMiddleware::ApiVersioning) {
+            tracing::trace!("ApiVersioning middleware skipped (disabled in config)");
             return self;
         }
 
+        tracing::trace!(default_version = default_version, "ApiVersioning middleware enabled");
         use axum::middleware;
 
         let default_version = ApiVersion::new(default_version);
@@ -246,9 +253,15 @@ where
     #[must_use]
     pub fn setup_helmet(mut self) -> Self {
         if !self.is_middleware_enabled(HttpMiddleware::SecurityHeaders) {
+            tracing::trace!("SecurityHeaders middleware skipped (disabled in config)");
             return self;
         }
 
+        tracing::trace!(
+            x_frame_options = ?self.config.http.x_frame_options,
+            x_content_type_nosniff = self.config.http.x_content_type_nosniff,
+            "SecurityHeaders middleware enabled"
+        );
         let mut helmet = Helmet::new();
         if self.config.http.x_content_type_nosniff {
             helmet = helmet.add(helmet_core::XContentTypeOptions::nosniff());
@@ -301,6 +314,9 @@ where
                 .inner
                 .layer(RequestDecompressionLayer::new())
                 .layer(CompressionLayer::new());
+            tracing::trace!("Compression middleware enabled");
+        } else {
+            tracing::trace!("Compression middleware skipped (disabled in config)");
         }
         self
     }
@@ -364,12 +380,14 @@ where
     #[must_use]
     pub fn setup_cors(mut self) -> Self {
         if !self.is_middleware_enabled(HttpMiddleware::Cors) {
+            tracing::trace!("CORS middleware skipped (disabled in config)");
             return self;
         }
 
         use http::HeaderValue;
 
         if let Some(cors_config) = &self.config.http.cors {
+            tracing::trace!("CORS middleware enabled with custom configuration");
             let mut cors = CorsLayer::new();
 
             // By default we do NOT allow credentials
@@ -489,10 +507,12 @@ where
     #[must_use]
     pub fn setup_liveness(mut self) -> Self {
         if !self.is_middleware_enabled(HttpMiddleware::Liveness) {
+            tracing::trace!("Liveness middleware skipped (disabled in config)");
             return self;
         }
 
         let liveness_route = self.config.http.liveness_route.clone();
+        tracing::trace!(route = %liveness_route, "Liveness endpoint enabled");
         self.inner = self.inner.route(&liveness_route, get(|| async { "OK\n" }));
         self
     }
@@ -531,10 +551,12 @@ where
     #[must_use]
     pub fn setup_readiness(mut self) -> Self {
         if !self.is_middleware_enabled(HttpMiddleware::Readiness) {
+            tracing::trace!("Readiness middleware skipped (disabled in config)");
             return self;
         }
 
         let readiness_route = self.config.http.readiness_route.clone();
+        tracing::trace!(route = %readiness_route, "Readiness endpoint enabled");
 
         #[cfg(feature = "postgres")]
         let db_pool = self.db_pool.clone();

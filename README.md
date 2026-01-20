@@ -96,6 +96,7 @@ curl http://localhost:3000/metrics # Prometheus metrics
 | **Request logging** | Structured logs with UUIDv7 correlation IDs | Enabled |
 | **Rate limiting** | Per-IP request throttling | 100 req/sec |
 | **Security headers** | X-Frame-Options, X-Content-Type-Options | Enabled |
+| **Static files** | Serve assets, SPAs, protected downloads | Available |
 | **Panic recovery** | Catches panics, returns 500, keeps running | Enabled |
 | **Graceful shutdown** | Handles SIGTERM, drains connections | 30s timeout |
 | **Compression** | gzip, brotli, deflate, zstd | Available |
@@ -220,6 +221,7 @@ format = "json"
 | [OpenAPI](docs/features/openapi.md) | API documentation generation |
 | [Deduplication](docs/features/deduplication.md) | Request deduplication |
 | [TLS/rustls](docs/features/rustls.md) | TLS configuration |
+| [Static Files](docs/features/static-files.md) | Asset serving and SPA support |
 | **Middleware** | |
 | [Overview](docs/middleware/overview.md) | Middleware stack architecture |
 | [Features](docs/middleware/features.md) | API versioning, limits, normalization |

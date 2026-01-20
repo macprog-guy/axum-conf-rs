@@ -53,6 +53,10 @@ where
     #[must_use]
     pub fn setup_metrics(mut self) -> Self {
         if self.config.http.with_metrics && self.is_middleware_enabled(HttpMiddleware::Metrics) {
+            tracing::trace!(
+                route = %self.config.http.metrics_route,
+                "Metrics middleware enabled"
+            );
             const PACKAGE_NAME: &str = env!("CARGO_PKG_NAME");
             let metrics_path: &str =
                 Box::leak(self.config.http.metrics_route.clone().into_boxed_str());
@@ -104,9 +108,11 @@ where
     #[must_use]
     pub fn setup_logging(mut self) -> Self {
         if !self.is_middleware_enabled(HttpMiddleware::Logging) {
+            tracing::trace!("Logging middleware skipped (disabled in config)");
             return self;
         }
 
+        tracing::trace!("Logging middleware enabled");
         self.inner = self
             .inner
             .layer(

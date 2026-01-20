@@ -86,7 +86,17 @@ use {
     crate::{Error, Result, utils::replace_handlebars_with_env},
     serde::{Deserialize, de::DeserializeOwned},
     std::{env, fs, str::FromStr, time::Duration},
+    tracing_subscriber::{layer::Layered, EnvFilter, Layer, Registry},
 };
+
+/// The base subscriber type with fmt layer and env filter pre-configured.
+///
+/// This type is used as the input to [`Config::setup_tracing_with`], allowing
+/// you to add additional layers before initialization.
+pub type TracingBase = Layered<
+    EnvFilter,
+    Layered<Box<dyn Layer<Registry> + Send + Sync>, Registry>,
+>;
 
 /// Root configuration structure for axum-conf applications.
 ///
@@ -440,6 +450,55 @@ where
                     .try_init();
             }
         }
+    }
+
+    /// Sets up tracing with additional customization via a callback.
+    ///
+    /// The callback receives the pre-configured subscriber (with fmt layer and env filter
+    /// applied) and can add additional layers before initialization. This is useful when
+    /// you need to add custom layers like OpenTelemetry, file appenders, or custom filters.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use tracing_subscriber::layer::SubscriberExt;
+    ///
+    /// // Add an OpenTelemetry layer
+    /// config.setup_tracing_with(|subscriber| {
+    ///     subscriber.with(tracing_opentelemetry::layer().with_tracer(tracer))
+    /// });
+    ///
+    /// // Add multiple layers
+    /// config.setup_tracing_with(|subscriber| {
+    ///     subscriber
+    ///         .with(my_file_appender_layer)
+    ///         .with(my_custom_filter_layer)
+    /// });
+    /// ```
+    ///
+    /// # Note
+    ///
+    /// This should be called early during startup to ensure logging is configured
+    /// before any log messages are emitted.
+    pub fn setup_tracing_with<F, S>(&self, customize: F)
+    where
+        F: FnOnce(TracingBase) -> S,
+        S: tracing_subscriber::util::SubscriberInitExt,
+    {
+        use tracing_subscriber::prelude::*;
+
+        let fmt_layer: Box<dyn Layer<Registry> + Send + Sync> = match self.logging.format {
+            LogFormat::Json => Box::new(tracing_subscriber::fmt::layer().json()),
+            LogFormat::Default => Box::new(tracing_subscriber::fmt::layer()),
+            LogFormat::Compact => Box::new(tracing_subscriber::fmt::layer().compact()),
+            LogFormat::Pretty => Box::new(tracing_subscriber::fmt::layer().pretty()),
+        };
+
+        let base = tracing_subscriber::registry()
+            .with(fmt_layer)
+            .with(EnvFilter::from_default_env());
+
+        let _ = customize(base).try_init();
     }
 
     ///

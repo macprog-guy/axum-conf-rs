@@ -53,6 +53,11 @@ where
         if let Some(oidc) = &self.config.http.oidc
             && self.is_middleware_enabled(HttpMiddleware::Oidc)
         {
+            tracing::trace!(
+                realm = %oidc.realm,
+                issuer_url = %oidc.issuer_url,
+                "OIDC middleware enabled"
+            );
             let keycloak_auth_instance = KeycloakAuthInstance::new(
                 KeycloakConfig::builder()
                     .server(Url::parse(&oidc.issuer_url)?)
@@ -108,6 +113,10 @@ where
         if let Some(basic_auth_config) = &self.config.http.basic_auth
             && self.is_middleware_enabled(HttpMiddleware::BasicAuth)
         {
+            tracing::trace!(
+                mode = ?basic_auth_config.mode,
+                "BasicAuth middleware enabled"
+            );
             let config = Arc::new(basic_auth_config.clone());
 
             self.inner = self
@@ -133,6 +142,7 @@ where
     /// field remains empty and won't appear in log output.
     #[must_use]
     pub fn setup_user_span(mut self) -> Self {
+        tracing::trace!("UserSpan middleware enabled");
         self.inner = self
             .inner
             .layer(axum::middleware::from_fn(user_span::record_user_to_span));

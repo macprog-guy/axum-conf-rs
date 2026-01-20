@@ -449,7 +449,12 @@ where
                     .precompressed_br()
                     .precompressed_gzip();
 
-                eprintln!("Setting {:?} from files at {}", dir.route, dir.directory);
+                tracing::trace!(
+                    %protected,
+                    %route,
+                    directory = %dir.directory,
+                    "Setup static file mapping",
+                );
 
                 // Add cache headers if configured
                 if let Some(max_age) = dir.cache_max_age {
@@ -488,6 +493,7 @@ where
             // Add cache headers if configured
             if let Some(max_age) = dir.cache_max_age {
                 let cache_value = format!("public, max-age={}", max_age);
+                tracing::trace!(%max_age, directory=%dir.directory, "Mapping fallback path");
                 self.inner = self.inner.fallback_service(
                     tower::ServiceBuilder::new()
                         .layer(SetResponseHeaderLayer::if_not_present(

@@ -53,6 +53,10 @@ where
         if self.config.http.max_requests_per_sec > 0
             && self.is_middleware_enabled(HttpMiddleware::RateLimiting)
         {
+            tracing::trace!(
+                max_requests_per_sec = self.config.http.max_requests_per_sec,
+                "RateLimiting middleware enabled"
+            );
             // Used for rate limiting below
             let governor_conf = Box::new(
                 GovernorConfigBuilder::default()
@@ -139,9 +143,11 @@ where
         // Note: Panic catching is critical and should generally not be disabled
         // But we still respect the configuration for testing purposes
         if !self.is_middleware_enabled(HttpMiddleware::CatchPanic) {
+            tracing::trace!("CatchPanic middleware skipped (disabled in config)");
             return self;
         }
 
+        tracing::trace!("CatchPanic middleware enabled");
         let panic_channel = self.panic_channel.clone();
         self.inner = self.inner.layer(CatchPanicLayer::custom(
             move |err: Box<dyn std::any::Any + Send + 'static>| {

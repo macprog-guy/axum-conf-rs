@@ -51,9 +51,14 @@ where
     #[must_use]
     pub fn setup_max_payload_size(mut self) -> Self {
         if !self.is_middleware_enabled(HttpMiddleware::MaxPayloadSize) {
+            tracing::trace!("MaxPayloadSize middleware skipped (disabled in config)");
             return self;
         }
 
+        tracing::trace!(
+            max_payload_size = %self.config.http.max_payload_size_bytes,
+            "MaxPayloadSize middleware enabled"
+        );
         self.inner =
             self.inner
                 .layer(DefaultBodyLimit::disable())
@@ -91,9 +96,14 @@ where
     #[must_use]
     pub fn setup_concurrency_limit(mut self) -> Self {
         if !self.is_middleware_enabled(HttpMiddleware::ConcurrencyLimit) {
+            tracing::trace!("ConcurrencyLimit middleware skipped (disabled in config)");
             return self;
         }
 
+        tracing::trace!(
+            max_concurrent_requests = self.config.http.max_concurrent_requests,
+            "ConcurrencyLimit middleware enabled"
+        );
         self.inner = self.inner.layer(ConcurrencyLimitLayer::new(
             self.config.http.max_concurrent_requests as usize,
         ));
@@ -122,9 +132,11 @@ where
     #[must_use]
     pub fn setup_request_id(mut self) -> Self {
         if !self.is_middleware_enabled(HttpMiddleware::RequestId) {
+            tracing::trace!("RequestId middleware skipped (disabled in config)");
             return self;
         }
 
+        tracing::trace!("RequestId middleware enabled");
         let x_request_id = HeaderName::from_static("x-request-id");
         self.inner = self
             .inner
@@ -175,17 +187,23 @@ where
     #[must_use]
     pub fn setup_deduplication(mut self) -> Self {
         if !self.is_middleware_enabled(HttpMiddleware::RequestDeduplication) {
+            tracing::trace!("Deduplication middleware skipped (disabled in config)");
             return self;
         }
 
         if !self.is_middleware_enabled(HttpMiddleware::RequestId) {
-            eprintln!(
+            tracing::error!(
                 "RequestId middleware must be enabled and added after deduplication because axum handles layers from the outside in."
             );
             return self;
         }
 
         if let Some(dedup_config) = &self.config.http.deduplication {
+            tracing::trace!(
+                ttl = ?dedup_config.ttl,
+                max_entries = dedup_config.max_entries,
+                "Deduplication middleware enabled"
+            );
             let layer =
                 DeduplicationLayer::new(dedup_config.ttl, dedup_config.max_entries, "x-request-id");
 
@@ -221,9 +239,11 @@ where
     #[must_use]
     pub fn setup_sensitive_headers(mut self) -> Self {
         if !self.is_middleware_enabled(HttpMiddleware::SensitiveHeaders) {
+            tracing::trace!("SensitiveHeaders middleware skipped (disabled in config)");
             return self;
         }
 
+        tracing::trace!("SensitiveHeaders middleware enabled");
         self.inner = self
             .inner
             .layer(SetSensitiveHeadersLayer::new(once(AUTHORIZATION)));

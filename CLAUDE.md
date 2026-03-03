@@ -91,21 +91,23 @@ Middleware is added innermost-to-outermost. The **last layer added executes firs
 
 1. Liveness/Readiness (innermost - health endpoints)
 2. OIDC Authentication
-3. Request Deduplication
-4. Concurrency Limit
-5. Max Payload Size
-6. Compression
-7. Path Normalization
-8. Sensitive Headers
-9. Request ID (UUIDv7)
-10. API Versioning
-11. CORS
-12. Security Headers (Helmet)
-13. Logging
-14. Metrics (Prometheus)
-15. Timeout
-16. Rate Limiting
-17. Panic Catching (outermost)
+3. Basic Auth / API Key Authentication
+4. Proxy OIDC Authentication
+5. Request Deduplication
+6. Concurrency Limit
+7. Max Payload Size
+8. Compression
+9. Path Normalization
+10. Sensitive Headers
+11. Request ID (UUIDv7)
+12. API Versioning
+13. CORS
+14. Security Headers (Helmet)
+15. Logging
+16. Metrics (Prometheus)
+17. Timeout
+18. Rate Limiting
+19. Panic Catching (outermost)
 
 ### Test Organization
 
@@ -115,6 +117,16 @@ Middleware is added innermost-to-outermost. The **last layer added executes firs
 | `tests/` | Integration tests | Real TCP + Docker | Slow |
 
 Integration tests in `tests/` require Docker (testcontainers for Keycloak/PostgreSQL) and real network connections.
+
+### Authentication
+
+All authentication methods produce a unified `AuthenticatedIdentity` (defined in `src/config/http/identity.rs`), available as an Axum extractor:
+
+- **Basic Auth** (`basic-auth` feature) - HTTP Basic Auth and API Key authentication
+- **OIDC** (`keycloak` feature) - Keycloak JWT tokens, mapped via post-OIDC middleware
+- **Proxy OIDC** (no feature flag) - Identity from reverse proxy headers (e.g., oauth2-proxy)
+
+Authentication methods are mutually exclusive (validated at config load time). Proxy OIDC passes through without setting identity when headers are absent (no 401).
 
 ### Key Patterns
 

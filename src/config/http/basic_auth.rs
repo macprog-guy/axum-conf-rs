@@ -200,38 +200,6 @@ impl HttpBasicAuthConfig {
     }
 }
 
-/// Identity of an authenticated user or service.
-///
-/// This struct is inserted into request extensions after successful authentication
-/// and can be extracted in handlers using `Extension<AuthenticatedIdentity>`.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// use axum::Extension;
-/// use axum_conf::AuthenticatedIdentity;
-///
-/// async fn handler(Extension(identity): Extension<AuthenticatedIdentity>) -> String {
-///     format!("Hello, {}!", identity.name)
-/// }
-/// ```
-#[derive(Debug, Clone)]
-pub struct AuthenticatedIdentity {
-    /// The authentication method used.
-    pub method: AuthMethod,
-    /// Username (for Basic Auth) or API key name (for API Key).
-    pub name: String,
-}
-
-/// The authentication method used for a request.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum AuthMethod {
-    /// HTTP Basic Auth (RFC 7617).
-    BasicAuth,
-    /// API Key authentication.
-    ApiKey,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

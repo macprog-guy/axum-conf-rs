@@ -109,6 +109,11 @@ pub enum HttpMiddleware {
     #[cfg(feature = "basic-auth")]
     BasicAuth,
 
+    /// Proxy OIDC authentication middleware.
+    /// Reads identity from HTTP headers set by an authenticating reverse proxy.
+    /// No feature flag required.
+    ProxyOidc,
+
     /// Request deduplication middleware.
     /// Prevents duplicate processing of requests with the same request ID.
     /// Requires `RequestId` middleware to be enabled.

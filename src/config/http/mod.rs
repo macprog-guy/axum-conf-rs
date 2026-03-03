@@ -7,6 +7,7 @@ mod dedup;
 mod identity;
 mod middleware;
 mod oidc;
+mod proxy_oidc;
 mod staticdir;
 
 #[cfg(feature = "basic-auth")]
@@ -19,6 +20,7 @@ pub use identity::*;
 pub use middleware::*;
 #[cfg(feature = "keycloak")]
 pub use oidc::*;
+pub use proxy_oidc::*;
 pub use staticdir::*;
 
 use {crate::Result, serde::Deserialize, std::fmt, std::time::Duration};
@@ -156,6 +158,11 @@ pub struct HttpConfig {
     #[serde(default)]
     pub basic_auth: Option<HttpBasicAuthConfig>,
 
+    /// Proxy OIDC configuration for reverse-proxy-based authentication.
+    /// When present, the middleware reads identity from proxy-set HTTP headers.
+    #[serde(default)]
+    pub proxy_oidc: Option<HttpProxyOidcConfig>,
+
     /// CORS configuration. If not present defaults to permissive CORS.
     pub cors: Option<HttpCorsConfig>,
 
@@ -284,6 +291,22 @@ impl HttpConfig {
             ));
         }
 
+        // Mutual exclusion: proxy_oidc cannot be used with basic_auth
+        #[cfg(feature = "basic-auth")]
+        if self.basic_auth.is_some() && self.proxy_oidc.is_some() {
+            return Err(crate::Error::invalid_input(
+                "Cannot configure both [http.basic_auth] and [http.proxy_oidc]. Choose one authentication method.",
+            ));
+        }
+
+        // Mutual exclusion: proxy_oidc cannot be used with oidc
+        #[cfg(feature = "keycloak")]
+        if self.oidc.is_some() && self.proxy_oidc.is_some() {
+            return Err(crate::Error::invalid_input(
+                "Cannot configure both [http.oidc] and [http.proxy_oidc]. Choose one authentication method.",
+            ));
+        }
+
         // Validate individual static directories
         for dir in &self.directories {
             dir.validate()?;
@@ -338,6 +361,7 @@ impl Default for HttpConfig {
             oidc: None,
             #[cfg(feature = "basic-auth")]
             basic_auth: None,
+            proxy_oidc: None,
             cors: None,
             deduplication: None,
             shutdown_timeout: Self::default_shutdown_timeout(),

@@ -4,6 +4,7 @@ mod basic_auth;
 mod circuit_breaker;
 mod cors;
 mod dedup;
+mod identity;
 mod middleware;
 mod oidc;
 mod staticdir;
@@ -14,6 +15,7 @@ pub use basic_auth::*;
 pub use circuit_breaker::*;
 pub use cors::*;
 pub use dedup::*;
+pub use identity::*;
 pub use middleware::*;
 #[cfg(feature = "keycloak")]
 pub use oidc::*;

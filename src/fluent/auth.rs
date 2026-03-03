@@ -18,6 +18,49 @@ use {
 #[cfg(feature = "basic-auth")]
 use {super::basic_auth, std::sync::Arc};
 
+#[cfg(feature = "keycloak")]
+async fn map_keycloak_to_identity(
+    mut request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    if let Some(token) = request
+        .extensions()
+        .get::<axum_keycloak_auth::decode::KeycloakToken<
+            crate::Role,
+            axum_keycloak_auth::decode::ProfileAndEmail,
+        >>()
+    {
+        let identity = crate::AuthenticatedIdentity {
+            method: crate::AuthMethod::Oidc,
+            user: token.subject.clone(),
+            email: {
+                let email = &token.extra.email.email;
+                if email.is_empty() {
+                    None
+                } else {
+                    Some(email.clone())
+                }
+            },
+            groups: token
+                .roles
+                .iter()
+                .map(|r| r.role().clone())
+                .collect(),
+            preferred_username: {
+                let pref = &token.extra.profile.preferred_username;
+                if pref.is_empty() {
+                    None
+                } else {
+                    Some(pref.clone())
+                }
+            },
+            access_token: None,
+        };
+        request.extensions_mut().insert(identity);
+    }
+    next.run(request).await
+}
+
 impl<State> FluentRouter<State>
 where
     State: Clone + Send + Sync + 'static,
@@ -73,6 +116,11 @@ where
                     .persist_raw_claims(true)
                     .build(),
             );
+
+            // Map KeycloakToken to unified AuthenticatedIdentity
+            self.inner = self
+                .inner
+                .layer(axum::middleware::from_fn(map_keycloak_to_identity));
         }
         Ok(self)
     }

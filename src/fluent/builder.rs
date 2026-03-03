@@ -149,6 +149,8 @@ where
         #[cfg(feature = "basic-auth")]
         let router = router.setup_basic_auth()?; // 1b. Basic Auth (route_layer - applies to existing routes)
 
+        let router = router.setup_proxy_oidc(); // 1c. ProxyOidc (route_layer - applies to existing routes)
+
         // Public static files added AFTER auth so they're accessible without authentication
         let router = router.setup_public_files()?;
 

@@ -1,8 +1,9 @@
 //! Authenticated identity types shared across all authentication methods.
 
 use crate::utils::Sensitive;
-use axum::extract::FromRequestParts;
+use axum::extract::{FromRequestParts, OptionalFromRequestParts};
 use http::{StatusCode, request::Parts};
+use std::convert::Infallible;
 
 /// The authentication method used for a request.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -66,5 +67,19 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthenticatedIdentity {
             .get::<AuthenticatedIdentity>()
             .cloned()
             .ok_or((StatusCode::UNAUTHORIZED, "Authentication required"))
+    }
+}
+
+impl<S: Send + Sync> OptionalFromRequestParts<S> for AuthenticatedIdentity {
+    type Rejection = Infallible;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> std::result::Result<Option<Self>, Self::Rejection> {
+        Ok(parts
+            .extensions
+            .get::<AuthenticatedIdentity>()
+            .cloned())
     }
 }

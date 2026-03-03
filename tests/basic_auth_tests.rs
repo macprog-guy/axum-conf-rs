@@ -17,7 +17,7 @@
 
 #![cfg(feature = "basic-auth")]
 
-use axum::{Extension, Router, routing::get};
+use axum::{Router, routing::get};
 use axum_conf::{
     AuthenticatedIdentity, Config, FluentRouter, HttpMiddleware, HttpMiddlewareConfig,
 };
@@ -127,8 +127,8 @@ format = "json"
 }
 
 /// Handler that returns the authenticated identity name
-async fn whoami_handler(Extension(identity): Extension<AuthenticatedIdentity>) -> String {
-    format!("Hello, {}!", identity.name)
+async fn whoami_handler(identity: AuthenticatedIdentity) -> String {
+    format!("Hello, {}!", identity.user)
 }
 
 /// Start a test server with the given config

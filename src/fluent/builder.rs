@@ -94,7 +94,7 @@ where
     /// # use axum_conf::{Config, FluentRouter, Result};
     /// # async fn example() -> Result<()> {
     /// // Manual setup example (not recommended unless you need custom ordering)
-    /// let router = FluentRouter::without_state(Config::default())?
+    /// let router = FluentRouter::without_state(Config::<()>::default())?
     ///     // Innermost layers first (execute last on request)
     ///     .setup_deduplication()
     ///     .setup_logging()
@@ -123,7 +123,7 @@ where
     /// Disable Prometheus in tests to avoid global registry conflicts:
     /// ```rust
     /// # use axum_conf::Config;
-    /// let mut config = Config::default();
+    /// let mut config: Config = Config::default();
     /// config.http.with_metrics = false;
     /// ```
     pub async fn setup_middleware(self) -> Result<Self> {
@@ -225,7 +225,7 @@ where
     /// use axum_conf::{Config, FluentRouter, ShutdownPhase};
     ///
     /// # async fn example() -> axum_conf::Result<()> {
-    /// let router = FluentRouter::without_state(Config::default())?;
+    /// let router = FluentRouter::without_state(Config::<()>::default())?;
     ///
     /// // Set up shutdown handlers BEFORE starting
     /// let mut shutdown_rx = router.subscribe_to_shutdown();
@@ -313,7 +313,7 @@ where
     /// # use axum_conf::{Config, FluentRouter};
     /// # fn example() -> axum_conf::Result<()> {
     ///
-    /// let router = FluentRouter::without_state(Config::default())?
+    /// let router = FluentRouter::without_state(Config::<()>::default())?
     ///     .layer(ConcurrencyLimitLayer::new(100));
     /// # Ok(())
     /// # }
@@ -357,7 +357,7 @@ where
     /// }
     ///
     /// # async fn example() {
-    /// let config = Config::default();
+    /// let config: Config = Config::default();
     /// let router = FluentRouter::without_state(config)
     ///     .unwrap()
     ///     .route("/hello", get(handler))
@@ -417,7 +417,7 @@ where
     /// let api_v1 = Router::new()
     ///     .route("/users", get(|| async { "users" }));
     ///
-    /// let app = FluentRouter::without_state(Config::default())?
+    /// let app = FluentRouter::without_state(Config::<()>::default())?
     ///     .nest("/api/v1", api_v1);  // Routes at /api/v1/users
     /// # Ok(())
     /// # }
@@ -446,7 +446,7 @@ where
     /// # fn example() -> axum_conf::Result<()> {
     ///
     /// let service = Router::new().route("/health", get(|| async { "OK" }));
-    /// let app = FluentRouter::without_state(Config::default())?
+    /// let app = FluentRouter::without_state(Config::<()>::default())?
     ///     .nest_service("/api", service);
     /// # Ok(())
     /// # }
@@ -484,7 +484,7 @@ where
     /// let user_routes = Router::new()
     ///     .route("/users", get(|| async { "users" }));
     ///
-    /// let app = FluentRouter::without_state(Config::default())?
+    /// let app = FluentRouter::without_state(Config::<()>::default())?
     ///     .merge(user_routes);  // Routes directly at /users
     /// # Ok(())
     /// # }
@@ -499,7 +499,7 @@ where
     /// # fn example() -> axum_conf::Result<()> {
     /// # fn api_routes() -> Router { Router::new() }
     /// # fn admin_routes() -> Router { Router::new() }
-    /// FluentRouter::without_state(Config::default())?
+    /// FluentRouter::without_state(Config::<()>::default())?
     ///     .merge(api_routes())
     ///     .merge(admin_routes());
     /// # Ok(())
@@ -533,7 +533,7 @@ where
     ///     Ok::<_, std::convert::Infallible>(Response::new("Hello".into()))
     /// });
     ///
-    /// let app = FluentRouter::without_state(Config::default())?
+    /// let app = FluentRouter::without_state(Config::<()>::default())?
     ///     .route_service("/custom", service);
     /// # Ok(())
     /// # }
@@ -563,7 +563,7 @@ where
     /// ```rust,no_run
     /// # use axum_conf::{Config, FluentRouter};
     /// # fn example() -> axum_conf::Result<()> {
-    /// let fluent = FluentRouter::without_state(Config::default())?;
+    /// let fluent = FluentRouter::without_state(Config::<()>::default())?;
     /// let axum_router: axum::Router = fluent.into_inner();
     /// # Ok(())
     /// # }

@@ -38,12 +38,12 @@
 //!
 //! // Root-level fields must come BEFORE section headers in TOML
 //! let config: Config<MyAppConfig> = r#"
-//! # Application-specific fields at root level
 //! api_key = "secret"
 //! feature_enabled = true
 //!
 //! [http]
 //! bind_port = 3000
+//! max_payload_size_bytes = "1KiB"
 //! "#.parse().unwrap();
 //!
 //! assert_eq!(config.app.api_key, "secret");
@@ -129,6 +129,7 @@ pub type TracingBase = Layered<
 ///
 /// [http]
 /// bind_port = 8080
+/// max_payload_size_bytes = "1KiB"
 /// "#;
 ///
 /// let config: Config<AppSettings> = toml.parse().unwrap();
@@ -393,7 +394,7 @@ where
     /// #[derive(Debug, Clone, Default, Deserialize)]
     /// struct MyConfig { value: i32 }
     ///
-    /// let config: Config<MyConfig> = Config::new()
+    /// let config: Config<MyConfig> = Config::<MyConfig>::default()
     ///     .with_app(MyConfig { value: 42 });
     ///
     /// assert_eq!(config.app.value, 42);

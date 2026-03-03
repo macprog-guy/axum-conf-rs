@@ -46,7 +46,7 @@ where
     /// Disable metrics in tests to avoid conflicts with the global Prometheus registry:
     /// ```rust
     /// # use axum_conf::Config;
-    /// let mut config = Config::default();
+    /// let mut config: Config = Config::default();
     /// config.http.with_metrics = false;
     /// ```
     #[cfg(feature = "metrics")]
@@ -197,7 +197,7 @@ where
     /// ```rust,no_run
     /// # use axum_conf::{Config, FluentRouter};
     /// # async fn example() -> axum_conf::Result<()> {
-    /// let config = Config::default();
+    /// let config: Config = Config::default();
     /// let router = FluentRouter::without_state(config)?
     ///     .setup_opentelemetry()?
     ///     .setup_logging()

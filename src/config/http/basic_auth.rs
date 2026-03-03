@@ -62,6 +62,15 @@ pub struct BasicAuthUser {
     pub username: String,
     /// Password wrapped in Sensitive for secure handling.
     pub password: Sensitive<String>,
+    /// Optional email address for the user.
+    #[serde(default)]
+    pub email: Option<String>,
+    /// Groups the user belongs to.
+    #[serde(default)]
+    pub groups: Vec<String>,
+    /// Preferred username for display purposes.
+    #[serde(default)]
+    pub preferred_username: Option<String>,
 }
 
 /// A single API key credential.
@@ -80,6 +89,15 @@ pub struct BasicAuthApiKey {
     /// Optional friendly name for logging and auditing purposes.
     #[serde(default)]
     pub name: Option<String>,
+    /// Optional email address for the API key owner.
+    #[serde(default)]
+    pub email: Option<String>,
+    /// Groups the API key belongs to.
+    #[serde(default)]
+    pub groups: Vec<String>,
+    /// Preferred username for display purposes.
+    #[serde(default)]
+    pub preferred_username: Option<String>,
 }
 
 /// Configuration for HTTP Basic Auth and API Key authentication.
@@ -250,6 +268,9 @@ mod tests {
             users: vec![BasicAuthUser {
                 username: "admin".to_string(),
                 password: Sensitive::from("secret"),
+                email: None,
+                groups: vec![],
+                preferred_username: None,
             }],
             api_keys: vec![],
             ..Default::default()
@@ -265,6 +286,9 @@ mod tests {
             api_keys: vec![BasicAuthApiKey {
                 key: Sensitive::from("my-api-key"),
                 name: Some("test-key".to_string()),
+                email: None,
+                groups: vec![],
+                preferred_username: None,
             }],
             ..Default::default()
         };
@@ -278,6 +302,9 @@ mod tests {
             users: vec![BasicAuthUser {
                 username: "  ".to_string(),
                 password: Sensitive::from("secret"),
+                email: None,
+                groups: vec![],
+                preferred_username: None,
             }],
             api_keys: vec![],
             ..Default::default()
@@ -292,6 +319,9 @@ mod tests {
             users: vec![BasicAuthUser {
                 username: "admin".to_string(),
                 password: Sensitive::from(""),
+                email: None,
+                groups: vec![],
+                preferred_username: None,
             }],
             api_keys: vec![],
             ..Default::default()
@@ -307,6 +337,9 @@ mod tests {
             api_keys: vec![BasicAuthApiKey {
                 key: Sensitive::from(""),
                 name: None,
+                email: None,
+                groups: vec![],
+                preferred_username: None,
             }],
             ..Default::default()
         };
@@ -322,6 +355,9 @@ mod tests {
             api_keys: vec![BasicAuthApiKey {
                 key: Sensitive::from("my-key"),
                 name: None,
+                email: None,
+                groups: vec![],
+                preferred_username: None,
             }],
         };
         assert!(config.validate().is_err());

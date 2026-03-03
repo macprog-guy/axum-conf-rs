@@ -29,7 +29,7 @@ fn get_username_from_request(request: &Request<Body>) -> Option<String> {
     // Try Basic Auth first (if feature enabled)
     #[cfg(feature = "basic-auth")]
     if let Some(identity) = request.extensions().get::<crate::AuthenticatedIdentity>() {
-        return Some(identity.name.clone());
+        return Some(identity.user.clone());
     }
 
     // Try Keycloak/OIDC (if feature enabled)
@@ -67,7 +67,11 @@ mod tests {
         let mut request = Request::new(Body::empty());
         request.extensions_mut().insert(AuthenticatedIdentity {
             method: AuthMethod::BasicAuth,
-            name: "test-user".to_string(),
+            user: "test-user".to_string(),
+            email: None,
+            groups: vec![],
+            preferred_username: None,
+            access_token: None,
         });
 
         let username = get_username_from_request(&request);
@@ -83,7 +87,11 @@ mod tests {
         let mut request = Request::new(Body::empty());
         request.extensions_mut().insert(AuthenticatedIdentity {
             method: AuthMethod::ApiKey,
-            name: "api-service".to_string(),
+            user: "api-service".to_string(),
+            email: None,
+            groups: vec![],
+            preferred_username: None,
+            access_token: None,
         });
 
         let username = get_username_from_request(&request);

@@ -71,7 +71,11 @@ fn try_basic_auth(
         {
             return Ok(Some(AuthenticatedIdentity {
                 method: AuthMethod::BasicAuth,
-                name: username.to_string(),
+                user: username.to_string(),
+                email: user.email.clone(),
+                groups: user.groups.clone(),
+                preferred_username: user.preferred_username.clone(),
+                access_token: None,
             }));
         }
     }
@@ -95,10 +99,14 @@ fn try_api_key_auth(
         if constant_time_compare(api_key.as_bytes(), key_config.key.0.as_bytes()) {
             return Ok(Some(AuthenticatedIdentity {
                 method: AuthMethod::ApiKey,
-                name: key_config
+                user: key_config
                     .name
                     .clone()
                     .unwrap_or_else(|| "api-key".to_string()),
+                email: key_config.email.clone(),
+                groups: key_config.groups.clone(),
+                preferred_username: key_config.preferred_username.clone(),
+                access_token: None,
             }));
         }
     }
@@ -157,7 +165,7 @@ pub(crate) async fn basic_auth_middleware(
         Ok(identity) => {
             tracing::debug!(
                 method = ?identity.method,
-                name = %identity.name,
+                user = %identity.user,
                 "Request authenticated"
             );
             request.extensions_mut().insert(identity);
@@ -182,10 +190,16 @@ mod tests {
             users: vec![BasicAuthUser {
                 username: "testuser".to_string(),
                 password: Sensitive::from("testpass"),
+                email: None,
+                groups: vec![],
+                preferred_username: None,
             }],
             api_keys: vec![BasicAuthApiKey {
                 key: Sensitive::from("test-api-key-12345"),
                 name: Some("test-key".to_string()),
+                email: None,
+                groups: vec![],
+                preferred_username: None,
             }],
         }
     }
@@ -216,7 +230,7 @@ mod tests {
 
         let identity = result.unwrap();
         assert_eq!(identity.method, AuthMethod::BasicAuth);
-        assert_eq!(identity.name, "testuser");
+        assert_eq!(identity.user, "testuser");
     }
 
     #[test]
@@ -257,7 +271,7 @@ mod tests {
 
         let identity = result.unwrap();
         assert_eq!(identity.method, AuthMethod::ApiKey);
-        assert_eq!(identity.name, "test-key");
+        assert_eq!(identity.user, "test-key");
     }
 
     #[test]
@@ -347,6 +361,9 @@ mod tests {
             api_keys: vec![BasicAuthApiKey {
                 key: Sensitive::from("nameless-key"),
                 name: None,
+                email: None,
+                groups: vec![],
+                preferred_username: None,
             }],
         };
 
@@ -357,7 +374,7 @@ mod tests {
         assert!(result.is_ok());
 
         let identity = result.unwrap();
-        assert_eq!(identity.name, "api-key");
+        assert_eq!(identity.user, "api-key");
     }
 
     #[test]
@@ -369,6 +386,9 @@ mod tests {
             api_keys: vec![BasicAuthApiKey {
                 key: Sensitive::from("custom-key"),
                 name: Some("custom".to_string()),
+                email: None,
+                groups: vec![],
+                preferred_username: None,
             }],
         };
 
@@ -380,6 +400,6 @@ mod tests {
 
         let identity = result.unwrap();
         assert_eq!(identity.method, AuthMethod::ApiKey);
-        assert_eq!(identity.name, "custom");
+        assert_eq!(identity.user, "custom");
     }
 }

@@ -54,7 +54,7 @@
 //! use axum_conf::{Config, FluentRouter};
 //!
 //! # async fn example() -> axum_conf::Result<()> {
-//! let router = FluentRouter::without_state(Config::default())?;
+//! let router = FluentRouter::without_state(Config::<()>::default())?;
 //! let token = router.cancellation_token();
 //!
 //! // Spawn a background task that respects shutdown
@@ -82,7 +82,7 @@
 //! use axum_conf::{Config, FluentRouter, ShutdownPhase};
 //!
 //! # async fn example() -> axum_conf::Result<()> {
-//! let router = FluentRouter::without_state(Config::default())?;
+//! let router = FluentRouter::without_state(Config::<()>::default())?;
 //! let mut shutdown_rx = router.shutdown_notifier().subscribe();
 //!
 //! tokio::spawn(async move {
@@ -192,7 +192,7 @@ pub enum ShutdownPhase {
 /// use axum_conf::{Config, FluentRouter, ShutdownPhase};
 ///
 /// # async fn example() -> axum_conf::Result<()> {
-/// let router = FluentRouter::without_state(Config::default())?;
+/// let router = FluentRouter::without_state(Config::<()>::default())?;
 /// let notifier = router.shutdown_notifier();
 ///
 /// // Create multiple subscribers

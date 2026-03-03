@@ -24,7 +24,7 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<()> {
-//!     let config = Config::default();  // Loads from config/{RUST_ENV}.toml
+//!     let config: Config = Config::default();  // Loads from config/{RUST_ENV}.toml
 //!     config.setup_tracing();
 //!
 //!     FluentRouter::without_state(config)?
@@ -87,7 +87,7 @@
 //! use std::time::Duration;
 //!
 //! // From file (recommended for production)
-//! let config = Config::default();  // Uses RUST_ENV
+//! let config: Config = Config::default();  // Uses RUST_ENV
 //!
 //! // From string (useful for tests)
 //! let config: Config = r#"
@@ -97,7 +97,7 @@
 //! "#.parse().unwrap();
 //!
 //! // With builder methods
-//! let config = Config::default()
+//! let config: Config = Config::default()
 //!     .with_bind_port(8080)
 //!     .with_compression(true)
 //!     .with_request_timeout(Duration::from_secs(30));
@@ -138,7 +138,7 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<()> {
-//!     let config = Config::default();
+//!     let config: Config = Config::default();
 //!     let state = AppState { counter: Arc::new(AtomicU64::new(0)) };
 //!
 //!     FluentRouter::<AppState>::with_state(config, state)?

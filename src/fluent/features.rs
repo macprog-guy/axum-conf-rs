@@ -148,7 +148,7 @@ where
     /// }
     ///
     /// # async fn example() -> axum_conf::Result<()> {
-    /// FluentRouter::without_state(Config::default())?
+    /// FluentRouter::without_state(Config::<()>::default())?
     ///     .setup_api_versioning(1)  // Default to v1
     ///     .route("/users", get(handler));
     /// # Ok(())
@@ -364,7 +364,7 @@ where
     /// ```rust,no_run
     /// use axum_conf::{Config, HttpCorsConfig};
     /// # fn example() -> axum_conf::Result<()> {
-    /// let mut config = Config::default();
+    /// let mut config: Config = Config::default();
     /// config.http.cors = Some(HttpCorsConfig {
     ///     allow_credentials: Some(true),
     ///     allowed_origins: Some(vec!["https://app.example.com".to_string()]),

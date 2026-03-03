@@ -124,7 +124,7 @@ where
     /// # async fn example() -> axum_conf::Result<()> {
     /// let (tx, rx) = tokio::sync::mpsc::channel(100);
     ///
-    /// FluentRouter::without_state(Config::default())?
+    /// FluentRouter::without_state(Config::<()>::default())?
     ///     .with_panic_notification_channel(tx)
     ///     .setup_catch_panic();
     /// # Ok(())

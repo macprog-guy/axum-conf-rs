@@ -35,7 +35,7 @@ use {
 /// use axum_conf::{Config, FluentRouter, ShutdownPhase};
 ///
 /// # async fn example() -> axum_conf::Result<()> {
-/// let router = FluentRouter::without_state(Config::default())?;
+/// let router = FluentRouter::without_state(Config::<()>::default())?;
 ///
 /// // Option 1: Simple cancellation token for background tasks
 /// let token = router.cancellation_token();
@@ -211,7 +211,7 @@ where
     /// use axum_conf::{Config, FluentRouter, ShutdownPhase};
     ///
     /// # async fn example() -> axum_conf::Result<()> {
-    /// let router = FluentRouter::without_state(Config::default())?;
+    /// let router = FluentRouter::without_state(Config::<()>::default())?;
     /// let notifier = router.shutdown_notifier();
     ///
     /// // Subscribe from multiple places
@@ -257,7 +257,7 @@ where
     /// use std::time::Duration;
     ///
     /// # async fn example() -> axum_conf::Result<()> {
-    /// let router = FluentRouter::without_state(Config::default())?;
+    /// let router = FluentRouter::without_state(Config::<()>::default())?;
     /// let token = router.cancellation_token();
     ///
     /// // Background task that respects shutdown
@@ -288,7 +288,7 @@ where
     /// ```rust,no_run
     /// # use axum_conf::{Config, FluentRouter};
     /// # fn example() -> axum_conf::Result<()> {
-    /// let router = FluentRouter::without_state(Config::default())?;
+    /// let router = FluentRouter::without_state(Config::<()>::default())?;
     ///
     /// let token1 = router.cancellation_token();
     /// let token2 = router.cancellation_token();
@@ -316,7 +316,7 @@ where
     /// use axum_conf::{Config, FluentRouter, ShutdownPhase};
     ///
     /// # async fn example() -> axum_conf::Result<()> {
-    /// let router = FluentRouter::without_state(Config::default())?;
+    /// let router = FluentRouter::without_state(Config::<()>::default())?;
     /// let mut rx = router.subscribe_to_shutdown();
     ///
     /// tokio::spawn(async move {
@@ -413,7 +413,7 @@ where
     /// # use axum_conf::{Config, FluentRouter};
     /// # async fn example() -> axum_conf::Result<()> {
     /// let (tx, mut rx) = tokio::sync::mpsc::channel(100);
-    /// let config = Config::default();
+    /// let config: Config = Config::default();
     ///
     /// let router = FluentRouter::without_state(config)?
     ///     .with_panic_notification_channel(tx);

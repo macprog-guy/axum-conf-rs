@@ -17,6 +17,7 @@
 mod basic_auth;
 #[cfg(feature = "deduplication")]
 mod dedup;
+mod proxy_oidc;
 mod user_span;
 
 // New submodules containing split implementation

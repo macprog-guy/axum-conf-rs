@@ -177,6 +177,41 @@ where
         Ok(self)
     }
 
+    /// Sets up Proxy OIDC authentication.
+    ///
+    /// When configured, reads identity from HTTP headers set by an authenticating
+    /// reverse proxy (e.g., oauth2-proxy with Nginx `auth_request`).
+    ///
+    /// If the user header is absent from a request, it passes through without
+    /// setting an identity (no 401 error).
+    ///
+    /// # Configuration
+    ///
+    /// ```toml
+    /// [http.proxy_oidc]
+    /// user_header = "X-Auth-Request-User"
+    /// email_header = "X-Auth-Request-Email"
+    /// groups_header = "X-Auth-Request-Groups"
+    /// preferred_username_header = "X-Auth-Request-Preferred-Username"
+    /// access_token_header = "X-Auth-Request-Access-Token"
+    /// ```
+    pub fn setup_proxy_oidc(mut self) -> Self {
+        if let Some(proxy_oidc_config) = &self.config.http.proxy_oidc
+            && self.is_middleware_enabled(HttpMiddleware::ProxyOidc)
+        {
+            tracing::trace!("ProxyOidc middleware enabled");
+            let config = std::sync::Arc::new(proxy_oidc_config.clone());
+
+            self.inner = self
+                .inner
+                .route_layer(axum::middleware::from_fn(move |request, next| {
+                    let config = std::sync::Arc::clone(&config);
+                    super::proxy_oidc::proxy_oidc_middleware(config, request, next)
+                }));
+        }
+        self
+    }
+
     /// Records the authenticated username to the logging span.
     ///
     /// This middleware runs after authentication and records the username

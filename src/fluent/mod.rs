@@ -17,6 +17,8 @@
 mod basic_auth;
 #[cfg(feature = "deduplication")]
 mod dedup;
+#[cfg(feature = "keycloak")]
+mod oidc_flow;
 mod proxy_oidc;
 mod user_span;
 

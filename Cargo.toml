@@ -1,6 +1,6 @@
 [package]
 name = "axum-conf"
-version = "0.3.18"
+version = "0.3.20"
 edition = "2024"
 authors = ["Eric Methot <em@ericmethot.com>"]
 description = "A library to simplify the use of Axum, Tokio and Postgres together using configuration. It comes with batteries included and many features can be feature activated."
@@ -50,8 +50,8 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "timeout", "request-id", "fs", "catch-panic", "set-header"] }
 
 # Feature-gated dependencies - High Impact
-axum-helmet = { version = "0.2", optional = true }
-helmet-core = { version = "0.2", optional = true }
+axum-helmet = { version = "0.3", optional = true }
+helmet-core = { version = "0.3", optional = true }
 axum-prometheus = { version = "0.10", optional = true }
 prometheus = { version = "0.14", optional = true }
 axum-metrics = { version = "0.2.0", optional = true }
@@ -74,6 +74,8 @@ opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic"], optional = t
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"], optional = true }
 opentelemetry-semantic-conventions = { version = "0.31", optional = true }
 base64 = { version = "0.22", optional = true }
+openidconnect = { version = "4.0", default-features = false, features = ["reqwest", "rustls-tls"], optional = true }
+serde_json = { version = "1.0", optional = true }
 
 # OpenAPI documentation
 utoipa = { version = "5", optional = true }
@@ -84,7 +86,7 @@ utoipa-scalar = { version = "0.3", features = ["axum"], optional = true }
 criterion = { version = "0.8", features = ["html_reports", "async_tokio"] }
 keycloak = "26.5"
 proptest = "1.9.0"
-reqwest = "0.13"
+reqwest = { version = "0.13", features = ["cookies"] }
 testcontainers = "0.27"
 testcontainers-modules = {version="0.15", features = ["postgres"]}
 tracing-test = "0.2.5"
@@ -146,7 +148,7 @@ production = [
 # Existing features
 postgres = ["rustls", "dep:sqlx", "dep:sqlx-postgres"]
 rustls = ["dep:rustls", "dep:rustls-native-certs"]
-keycloak = ["session", "dep:axum-keycloak-auth"]
+keycloak = ["session", "dep:axum-keycloak-auth", "dep:openidconnect", "dep:serde_json", "dep:base64"]
 session = ["dep:tower-sessions"]
 opentelemetry = [
     "dep:tracing-opentelemetry",

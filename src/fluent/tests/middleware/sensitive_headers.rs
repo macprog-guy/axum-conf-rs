@@ -91,8 +91,7 @@ async fn test_setup_sensitive_headers_without_authorization() {
 
 #[tokio::test]
 async fn test_setup_sensitive_headers_middleware_disabled() {
-    let config =
-        Config::new().with_excluded_middlewares(vec![HttpMiddleware::SensitiveHeaders]);
+    let config = Config::new().with_excluded_middlewares(vec![HttpMiddleware::SensitiveHeaders]);
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route(

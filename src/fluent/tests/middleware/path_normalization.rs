@@ -131,8 +131,7 @@ async fn test_path_normalization_with_path_parameters() {
 
 #[tokio::test]
 async fn test_path_normalization_disabled() {
-    let config =
-        Config::new().with_excluded_middlewares(vec![HttpMiddleware::PathNormalization]);
+    let config = Config::new().with_excluded_middlewares(vec![HttpMiddleware::PathNormalization]);
     let router = FluentRouter::without_state(config)
         .unwrap()
         .merge(Router::new().route("/test", get(|| async { "test" })))

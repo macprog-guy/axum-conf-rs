@@ -77,9 +77,6 @@ impl<S: Send + Sync> OptionalFromRequestParts<S> for AuthenticatedIdentity {
         parts: &mut Parts,
         _state: &S,
     ) -> std::result::Result<Option<Self>, Self::Rejection> {
-        Ok(parts
-            .extensions
-            .get::<AuthenticatedIdentity>()
-            .cloned())
+        Ok(parts.extensions.get::<AuthenticatedIdentity>().cloned())
     }
 }

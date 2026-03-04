@@ -86,17 +86,15 @@ use {
     crate::{Error, Result, utils::replace_handlebars_with_env},
     serde::{Deserialize, de::DeserializeOwned},
     std::{env, fs, str::FromStr, time::Duration},
-    tracing_subscriber::{layer::Layered, EnvFilter, Layer, Registry},
+    tracing_subscriber::{EnvFilter, Layer, Registry, layer::Layered},
 };
 
 /// The base subscriber type with fmt layer and env filter pre-configured.
 ///
 /// This type is used as the input to [`Config::setup_tracing_with`], allowing
 /// you to add additional layers before initialization.
-pub type TracingBase = Layered<
-    EnvFilter,
-    Layered<Box<dyn Layer<Registry> + Send + Sync>, Registry>,
->;
+pub type TracingBase =
+    Layered<EnvFilter, Layered<Box<dyn Layer<Registry> + Send + Sync>, Registry>>;
 
 /// Root configuration structure for axum-conf applications.
 ///
@@ -888,6 +886,7 @@ format = "compact"
             audiences: vec![],
             client_id: "test-client".to_string(),
             client_secret: Sensitive::from("test-secret"),
+            ..Default::default()
         });
 
         let result = config.validate();
@@ -910,6 +909,7 @@ format = "compact"
             audiences: vec![],
             client_id: "".to_string(),
             client_secret: Sensitive::from("test-secret"),
+            ..Default::default()
         });
 
         let result = config.validate();
@@ -932,6 +932,7 @@ format = "compact"
             audiences: vec![],
             client_id: "test-client".to_string(),
             client_secret: Sensitive::from(""),
+            ..Default::default()
         });
 
         let result = config.validate();
@@ -1023,6 +1024,7 @@ format = "compact"
             audiences: vec!["api".to_string()],
             client_id: "test-client".to_string(),
             client_secret: Sensitive::from("test-secret"),
+            ..Default::default()
         });
 
         let result = config.validate();
@@ -1195,6 +1197,7 @@ format = "compact"
             audiences: vec![],
             client_id: "test-client".to_string(),
             client_secret: Sensitive::from("test-secret"),
+            ..Default::default()
         });
 
         let result = config.validate();
@@ -1221,6 +1224,7 @@ format = "compact"
             audiences: vec![],
             client_id: "   ".to_string(),
             client_secret: Sensitive::from("test-secret"),
+            ..Default::default()
         });
 
         let result = config.validate();
@@ -1247,6 +1251,7 @@ format = "compact"
             audiences: vec![],
             client_id: "test-client".to_string(),
             client_secret: Sensitive::from("test-secret"),
+            ..Default::default()
         });
 
         let result = config.validate();

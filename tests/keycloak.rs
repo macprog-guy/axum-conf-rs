@@ -2,8 +2,8 @@ use {
     keycloak::{
         KeycloakAdmin, KeycloakAdminToken, KeycloakTokenSupplier,
         types::{
-            ClientRepresentation, CredentialRepresentation, RealmRepresentation,
-            RoleRepresentation, RolesRepresentation, UserRepresentation,
+            ClientRepresentation, CredentialRepresentation, ProtocolMapperRepresentation,
+            RealmRepresentation, RoleRepresentation, RolesRepresentation, UserRepresentation,
         },
     },
     testcontainers::{
@@ -115,6 +115,7 @@ impl KeycloakContainer {
         access_token
     }
 
+    #[allow(dead_code)]
     pub async fn create_test_user(&self) {
         tracing::info!("Configuring Keycloak...");
 
@@ -165,6 +166,89 @@ impl KeycloakContainer {
                         ..Default::default()
                     },
                 ]),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+    }
+
+    /// Creates a realm with both a public client (for Bearer/direct-access-grants)
+    /// and a confidential client (for authorization code flow).
+    #[allow(dead_code)]
+    pub async fn create_code_flow_realm(&self, redirect_uri: &str) {
+        tracing::info!("Configuring Keycloak for auth code flow...");
+
+        let admin_client = self.admin_client().await;
+
+        admin_client
+            .post(RealmRepresentation {
+                enabled: Some(true),
+                realm: Some("test-realm".to_owned()),
+                display_name: Some("test-realm".to_owned()),
+                registration_email_as_username: Some(true),
+                clients: Some(vec![
+                    // Public client for Bearer token / direct-access-grants (same as existing)
+                    ClientRepresentation {
+                        enabled: Some(true),
+                        public_client: Some(true),
+                        direct_access_grants_enabled: Some(true),
+                        id: Some("test-client".to_owned()),
+                        // Add audience mapper so tokens include "account" in the aud claim
+                        protocol_mappers: Some(vec![ProtocolMapperRepresentation {
+                            name: Some("account-audience".to_owned()),
+                            protocol: Some("openid-connect".to_owned()),
+                            protocol_mapper: Some("oidc-audience-mapper".to_owned()),
+                            config: Some(
+                                [
+                                    ("included.custom.audience", "account"),
+                                    ("access.token.claim", "true"),
+                                    ("id.token.claim", "false"),
+                                ]
+                                .into_iter()
+                                .map(|(k, v)| (k.to_owned(), v.to_owned()))
+                                .collect(),
+                            ),
+                            ..Default::default()
+                        }]),
+                        ..Default::default()
+                    },
+                    // Confidential client for authorization code flow
+                    ClientRepresentation {
+                        enabled: Some(true),
+                        public_client: Some(false),
+                        standard_flow_enabled: Some(true),
+                        direct_access_grants_enabled: Some(false),
+                        id: Some("test-confidential".to_owned()),
+                        secret: Some("test-secret".to_owned()),
+                        redirect_uris: Some(vec![redirect_uri.to_owned()]),
+                        ..Default::default()
+                    },
+                ]),
+                roles: Some(RolesRepresentation {
+                    realm: Some(vec![RoleRepresentation {
+                        name: Some("developer".to_owned()),
+                        ..Default::default()
+                    }]),
+                    ..Default::default()
+                }),
+                users: Some(vec![UserRepresentation {
+                    id: Some("a7060488-c80b-40c5-83e2-d7000bf9738e".to_owned()),
+                    enabled: Some(true),
+                    username: Some("test-user-mail@foo.bar".to_owned()),
+                    email: Some("test-user-mail@foo.bar".to_owned()),
+                    email_verified: Some(true),
+                    first_name: Some("firstName".to_owned()),
+                    last_name: Some("lastName".to_owned()),
+                    realm_roles: Some(vec!["developer".to_owned()]),
+                    credentials: Some(vec![CredentialRepresentation {
+                        type_: Some("password".to_owned()),
+                        value: Some("password".to_owned()),
+                        temporary: Some(false),
+                        ..Default::default()
+                    }]),
+                    required_actions: Some(vec![]),
+                    ..Default::default()
+                }]),
                 ..Default::default()
             })
             .await

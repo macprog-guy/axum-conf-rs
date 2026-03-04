@@ -179,7 +179,10 @@ where
             return self;
         }
 
-        tracing::trace!(default_version = default_version, "ApiVersioning middleware enabled");
+        tracing::trace!(
+            default_version = default_version,
+            "ApiVersioning middleware enabled"
+        );
         use axum::middleware;
 
         let default_version = ApiVersion::new(default_version);

@@ -93,6 +93,7 @@ post_logout_redirect = "/"                                 # After logout (defau
 login_route = "/auth/login"                                # Login path (default shown)
 callback_route = "/auth/callback"                          # Callback path (default shown)
 logout_route = "/auth/logout"                              # Logout path (default shown)
+auto_redirect_to_login = false                             # Redirect browsers to login (default: false)
 
 # =============================================================================
 # Proxy OIDC Configuration (no feature flag required)

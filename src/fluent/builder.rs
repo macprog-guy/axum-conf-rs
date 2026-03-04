@@ -143,6 +143,11 @@ where
         // Protected static files must be added BEFORE auth so route_layer applies to them
         let router = self.setup_protected_files()?;
 
+        // Browser login redirect is the innermost route_layer so it runs AFTER all
+        // auth middleware has resolved identity.
+        #[cfg(feature = "keycloak")]
+        let router = router.setup_browser_login_redirect();
+
         #[cfg(feature = "keycloak")]
         let router = router.setup_oidc()?; // 1a. OIDC Authentication (route_layer - applies to existing routes)
 

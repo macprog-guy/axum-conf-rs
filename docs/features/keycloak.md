@@ -260,6 +260,48 @@ When auth code flow is enabled, both Bearer tokens and session cookies work simu
 - **Session fallback**: Requests without a Bearer token fall back to session-based identity
 - **Passthrough mode**: Unauthenticated requests (no Bearer, no session) pass through without a 401, allowing public routes to work
 
+### Auto-Redirect for Browsers
+
+When `auto_redirect_to_login = true`, unauthenticated browser requests (those with `Accept: text/html` and no `Authorization` header) are automatically redirected to the login route. The original URL is saved in the session and restored after login.
+
+```toml
+[http.oidc]
+# ... other OIDC settings ...
+redirect_uri = "https://myapp.example.com/auth/callback"
+auto_redirect_to_login = true
+```
+
+Skip paths (health endpoints, auth routes, static files) are never redirected. API requests (`Accept: application/json`) pass through normally.
+
+### OIDC + Basic Auth Coexistence
+
+When auth code flow is enabled (`redirect_uri` set), OIDC and Basic Auth can be used together. This is useful for apps that serve both browser users (OIDC login) and API clients (API keys or Basic Auth).
+
+```toml
+[http.oidc]
+issuer_url = "https://keycloak.example.com"
+realm = "myrealm"
+client_id = "my-app"
+client_secret = "{{ OIDC_CLIENT_SECRET }}"
+audiences = ["my-app"]
+redirect_uri = "https://myapp.example.com/auth/callback"
+auto_redirect_to_login = true
+
+[http.basic_auth]
+mode = "api_key"
+[[http.basic_auth.api_keys]]
+key = "{{ SERVICE_API_KEY }}"
+name = "external-service"
+```
+
+How it works:
+- Requests with API key/Basic Auth credentials are authenticated by Basic Auth middleware
+- Requests with invalid credentials get 401 (never passed through)
+- Requests with no credentials pass through to OIDC session/Bearer auth
+- Browser requests without any identity are redirected to login (when `auto_redirect_to_login = true`)
+
+> **Note**: In bearer-only mode (no `redirect_uri`), OIDC and Basic Auth remain mutually exclusive since both compete for the `Authorization` header.
+
 ## Extracting Keycloak-Specific Claims
 
 For Bearer-only mode, when you need Keycloak-specific claims like realm roles and client roles, use `KeycloakToken`:
@@ -359,6 +401,7 @@ async fn main() -> Result<()> {
 | `login_route` | Login endpoint path | No | `"/auth/login"` |
 | `callback_route` | Callback endpoint path | No | `"/auth/callback"` |
 | `logout_route` | Logout endpoint path | No | `"/auth/logout"` |
+| `auto_redirect_to_login` | Auto-redirect unauthenticated browsers to login | No | `false` |
 
 ## Error Responses
 

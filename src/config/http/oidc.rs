@@ -37,10 +37,11 @@
 //! post_logout_redirect = "/"
 //! ```
 //!
-//! # Important
+//! # Compatibility
 //!
-//! OIDC authentication cannot be used together with Basic Auth (`basic-auth` feature).
-//! Choose one authentication method per application.
+//! OIDC and Basic Auth can coexist when auth code flow is enabled (`redirect_uri` set).
+//! In bearer-only mode (no `redirect_uri`), they are mutually exclusive since both
+//! compete for the `Authorization` header.
 
 use crate::{Error, Result, utils::Sensitive};
 use serde::Deserialize;
@@ -110,6 +111,12 @@ pub struct HttpOidcConfig {
     /// Route path for the logout endpoint. Defaults to `"/auth/logout"`.
     #[serde(default = "HttpOidcConfig::default_logout_route")]
     pub logout_route: String,
+
+    /// Auto-redirect unauthenticated browser requests to the login route.
+    /// Only effective when auth code flow is enabled (`redirect_uri` is set).
+    /// Defaults to `false`.
+    #[serde(default)]
+    pub auto_redirect_to_login: bool,
 }
 
 #[allow(unused)]

@@ -46,6 +46,7 @@ const SESSION_ACCESS_TOKEN: &str = "oidc_access_token";
 const SESSION_REFRESH_TOKEN: &str = "oidc_refresh_token";
 const SESSION_ID_TOKEN: &str = "oidc_id_token";
 const SESSION_TOKEN_EXPIRY: &str = "oidc_token_expiry";
+const SESSION_RETURN_URL: &str = "oidc_return_url";
 
 /// The concrete Client type returned by `from_provider_metadata` + `set_redirect_uri`.
 /// Auth URL is `EndpointSet` (always in discovery), Token URL is `EndpointMaybeSet`.
@@ -298,7 +299,15 @@ pub(crate) async fn callback_handler(
     let _ = session.remove::<String>(SESSION_CSRF_STATE).await;
     let _ = session.remove::<String>(SESSION_NONCE).await;
 
-    Ok(Redirect::temporary(&oidc.post_login_redirect))
+    // Use stored return URL (from browser redirect) if available, else fall back to config
+    let return_url: Option<String> = session.get(SESSION_RETURN_URL).await.ok().flatten();
+    let _ = session.remove::<String>(SESSION_RETURN_URL).await;
+
+    let redirect_target = return_url
+        .filter(|url| url.starts_with('/')) // security: only relative URLs
+        .unwrap_or_else(|| oidc.post_login_redirect.clone());
+
+    Ok(Redirect::temporary(&redirect_target))
 }
 
 /// GET /auth/logout — clears the session and redirects.

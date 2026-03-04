@@ -63,11 +63,35 @@
 //! | Feature | Description |
 //! |---------|-------------|
 //! | `postgres` | PostgreSQL connection pooling (enables `rustls`) |
-//! | `keycloak` | OIDC/JWT authentication (enables `session`) |
+//! | `keycloak` | OIDC/JWT authentication with auth code flow (enables `session`) |
 //! | `session` | Cookie-based session management |
 //! | `opentelemetry` | Distributed tracing with OTLP export |
 //! | `basic-auth` | HTTP Basic Auth and API key authentication |
 //! | `rustls` | TLS support |
+//!
+//! # Authentication
+//!
+//! All authentication methods produce an [`AuthenticatedIdentity`] available as an Axum extractor:
+//!
+//! ```rust,ignore
+//! use axum_conf::AuthenticatedIdentity;
+//!
+//! // Required — returns 401 if not authenticated
+//! async fn protected(identity: AuthenticatedIdentity) -> String {
+//!     format!("Hello, {}!", identity.user)
+//! }
+//!
+//! // Optional — returns None if not authenticated
+//! async fn public(identity: Option<AuthenticatedIdentity>) -> String {
+//!     match identity {
+//!         Some(id) => format!("Hello, {}!", id.user),
+//!         None => "Hello, anonymous!".to_string(),
+//!     }
+//! }
+//! ```
+//!
+//! Supported methods: OIDC (`keycloak` feature), HTTP Basic Auth (`basic-auth` feature),
+//! and Proxy OIDC (no feature flag, configured via `[http.proxy_oidc]`).
 //!
 //! # Module Organization
 //!

@@ -319,5 +319,7 @@ Now that you have a working service, explore these topics:
 
 - [Architecture](architecture.md) - Understand how axum-conf works
 - [Configuration Reference](configuration/toml-reference.md) - All configuration options
+- [Keycloak/OIDC](features/keycloak.md) - Add OIDC authentication (Bearer or login flow)
+- [Basic Auth](features/basic-auth.md) - Simple HTTP Basic Auth and API keys
 - [PostgreSQL](features/postgres.md) - Add database support
 - [Kubernetes Deployment](kubernetes/deployment.md) - Deploy to production

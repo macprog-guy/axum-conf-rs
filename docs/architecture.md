@@ -98,66 +98,69 @@ When a request arrives, it flows through the middleware stack from **outside to 
     │                 (execute first on request)                     │
     ├────────────────────────────────────────────────────────────────┤
     │                                                                │
-    │  18. Panic Catching ──────── Catches panics, returns 500       │
+    │  19. Panic Catching ──────── Catches panics, returns 500       │
     │           │                                                    │
     │           ▼                                                    │
-    │  17. Liveness (/live) ────── Simple health check               │
+    │  18. Liveness (/live) ────── Simple health check               │
     │           │                                                    │
     │           ▼                                                    │
-    │  16. Request ID ──────────── Generates/extracts UUIDv7         │
+    │  17. Request ID ──────────── Generates/extracts UUIDv7         │
     │           │                                                    │
     │           ▼                                                    │
-    │  15. Rate Limiting ───────── Rejects if over limit (429)       │
+    │  16. Rate Limiting ───────── Rejects if over limit (429)       │
     │           │                                                    │
     │           ▼                                                    │
-    │  14. Timeout ─────────────── Starts timeout timer              │
+    │  15. Timeout ─────────────── Starts timeout timer              │
     │           │                                                    │
     │           ▼                                                    │
-    │  13. Readiness (/ready) ──── Database health check             │
+    │  14. Readiness (/ready) ──── Database health check             │
     │           │                                                    │
     │           ▼                                                    │
-    │  12. Metrics ─────────────── Records request start             │
+    │  13. Metrics ─────────────── Records request start             │
     │           │                                                    │
     │           ▼                                                    │
-    │  11. Logging ─────────────── Creates trace span                │
+    │  12. Logging ─────────────── Creates trace span                │
     │                                                                │
     ├────────────────────────────────────────────────────────────────┤
     │                     MIDDLE LAYERS                              │
     │                  (transform request/response)                  │
     ├────────────────────────────────────────────────────────────────┤
     │                                                                │
-    │  10. Security Headers ────── Prepares response headers         │
+    │  11. Security Headers ────── Prepares response headers         │
     │           │                                                    │
     │           ▼                                                    │
-    │   9. CORS ────────────────── Handles OPTIONS preflight         │
+    │  10. CORS ────────────────── Handles OPTIONS preflight         │
     │           │                                                    │
     │           ▼                                                    │
-    │   8. API Versioning ──────── Extracts version to extensions    │
+    │   9. API Versioning ──────── Extracts version to extensions    │
     │           │                                                    │
     │           ▼                                                    │
-    │   7. Sensitive Headers ───── Marks Authorization as sensitive  │
+    │   8. Sensitive Headers ───── Marks Authorization as sensitive  │
     │           │                                                    │
     │           ▼                                                    │
-    │   6. Path Normalization ──── Removes trailing slashes          │
+    │   7. Path Normalization ──── Removes trailing slashes          │
     │           │                                                    │
     │           ▼                                                    │
-    │   5. Compression ─────────── Decompresses request body         │
+    │   6. Compression ─────────── Decompresses request body         │
     │           │                                                    │
     │           ▼                                                    │
-    │   4. Payload Size ────────── Rejects if too large (413)        │
+    │   5. Payload Size ────────── Rejects if too large (413)        │
     │           │                                                    │
     │           ▼                                                    │
-    │   3. Concurrency Limit ───── Rejects if at capacity (503)      │
+    │   4. Concurrency Limit ───── Rejects if at capacity (503)      │
     │           │                                                    │
     │           ▼                                                    │
-    │   2. Deduplication ───────── Checks for duplicate request ID   │
+    │   3. Deduplication ───────── Checks for duplicate request ID   │
     │                                                                │
     ├────────────────────────────────────────────────────────────────┤
     │                    INNERMOST LAYERS                            │
     │                 (execute last on request)                      │
     ├────────────────────────────────────────────────────────────────┤
     │                                                                │
-    │   1. Authentication ──────── Validates JWT/credentials         │
+    │   2. Proxy OIDC ──────────── Identity from proxy headers       │
+    │           │                                                    │
+    │           ▼                                                    │
+    │   1. Authentication ──────── Validates JWT, session, or creds  │
     │                                                                │
     └────────────────────────────────────────────────────────────────┘
                               │
@@ -279,7 +282,9 @@ Features enable additional functionality:
 
     keycloak ──────────▶ session (cookie management)
         │
-        └──────────────▶ axum-keycloak-auth (JWT validation)
+        ├──────────────▶ axum-keycloak-auth (JWT validation)
+        │
+        └──────────────▶ openidconnect (auth code flow)
 
     opentelemetry ─────▶ tracing-opentelemetry
         │

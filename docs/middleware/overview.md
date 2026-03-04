@@ -23,7 +23,7 @@ async fn main() -> Result<()> {
 }
 ```
 
-This one line applies 17+ middleware layers in the correct order.
+This one line applies 19 middleware layers in the correct order.
 
 ## Middleware Stack
 
@@ -36,93 +36,98 @@ When a request arrives, it flows through middleware from **outside to inside**, 
     ┌────────────────────────────────────────────────────────────────┐
     │                                                                │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │  18. PANIC CATCHING                                      │  │
+    │  │  19. PANIC CATCHING                                      │  │
     │  │      Catches all panics, returns 500, server continues   │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │  17. LIVENESS (/live)                                    │  │
+    │  │  18. LIVENESS (/live)                                    │  │
     │  │      Simple health check, always accessible              │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │  16. REQUEST ID                                          │  │
+    │  │  17. REQUEST ID                                          │  │
     │  │      Generates UUIDv7 or extracts from header            │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │  15. RATE LIMITING                                       │  │
+    │  │  16. RATE LIMITING                                       │  │
     │  │      Per-IP rate limiting, returns 429 if exceeded       │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │  14. TIMEOUT                                             │  │
+    │  │  15. TIMEOUT                                             │  │
     │  │      Enforces request timeout, returns 408               │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │  13. READINESS (/ready)                                  │  │
+    │  │  14. READINESS (/ready)                                  │  │
     │  │      Database health check (benefits from timeout)       │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │  12. METRICS (Prometheus)                                │  │
+    │  │  13. METRICS (Prometheus)                                │  │
     │  │      Records request count, duration, status, size       │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │  11. LOGGING                                             │  │
+    │  │  12. LOGGING                                             │  │
     │  │      Creates trace span with method, path, request ID    │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │  10. SECURITY HEADERS (Helmet)                           │  │
+    │  │  11. SECURITY HEADERS (Helmet)                           │  │
     │  │      X-Content-Type-Options, X-Frame-Options             │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │   9. CORS                                                │  │
+    │  │  10. CORS                                                │  │
     │  │      Cross-origin requests, preflight handling           │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │   8. API VERSIONING                                      │  │
+    │  │   9. API VERSIONING                                      │  │
     │  │      Extracts version from path/header/query             │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │   7. SENSITIVE HEADERS                                   │  │
+    │  │   8. SENSITIVE HEADERS                                   │  │
     │  │      Marks Authorization header as sensitive             │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │   6. PATH NORMALIZATION                                  │  │
+    │  │   7. PATH NORMALIZATION                                  │  │
     │  │      Removes trailing slashes                            │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │   5. COMPRESSION                                         │  │
+    │  │   6. COMPRESSION                                         │  │
     │  │      gzip, brotli, deflate, zstd                         │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │   4. PAYLOAD SIZE                                        │  │
+    │  │   5. PAYLOAD SIZE                                        │  │
     │  │      Rejects oversized requests (413)                    │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │   3. CONCURRENCY LIMIT                                   │  │
+    │  │   4. CONCURRENCY LIMIT                                   │  │
     │  │      Limits concurrent requests (503 if exceeded)        │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
-    │  │   2. REQUEST DEDUPLICATION                               │  │
+    │  │   3. REQUEST DEDUPLICATION                               │  │
     │  │      Prevents duplicate request processing               │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                           │                                    │
     │  ┌──────────────────────────────────────────────────────────┐  │
+    │  │   2. PROXY OIDC                                          │  │
+    │  │      Identity from reverse proxy headers                 │  │
+    │  └──────────────────────────────────────────────────────────┘  │
+    │                           │                                    │
+    │  ┌──────────────────────────────────────────────────────────┐  │
     │  │   1. AUTHENTICATION (OIDC/Basic Auth)                    │  │
-    │  │      Validates JWT or credentials                        │  │
+    │  │      Validates JWT, session, or credentials              │  │
     │  └──────────────────────────────────────────────────────────┘  │
     │                                                                │
     └────────────────────────────────────────────────────────────────┘
@@ -186,6 +191,7 @@ include = [
 | `request-deduplication` | Duplicate prevention | Enabled if configured |
 | `oidc` | JWT authentication | Enabled if configured |
 | `basic-auth` | Basic/API key auth | Enabled if configured |
+| `proxy-oidc` | Proxy OIDC auth | Enabled if configured |
 | `liveness` | /live endpoint | Enabled |
 | `readiness` | /ready endpoint | Enabled |
 | `session` | Cookie sessions | Enabled if feature on |
@@ -448,6 +454,7 @@ async fn main() -> Result<()> {
 ### Security Middleware
 - Rate limiting
 - Authentication (OIDC, Basic Auth)
+- Proxy OIDC
 - Security headers (Helmet)
 - CORS
 

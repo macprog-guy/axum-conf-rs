@@ -79,11 +79,33 @@ max_age = "1h"                        # Preflight cache duration (humantime form
 # OIDC/Keycloak Configuration (requires 'keycloak' feature)
 # =============================================================================
 [http.oidc]
-issuer_url = "https://keycloak.example.com/realms/myrealm"
+issuer_url = "https://keycloak.example.com"
 realm = "myrealm"
 client_id = "my-service"
 client_secret = "{{ OIDC_CLIENT_SECRET }}"  # Use env var substitution
 audiences = ["my-service", "account"]        # Expected JWT audiences
+
+# Authorization Code Flow (optional — enabled by setting redirect_uri)
+redirect_uri = "https://myapp.example.com/auth/callback"  # Enables login flow
+scopes = ["openid", "profile", "email"]                   # OAuth2 scopes (default shown)
+post_login_redirect = "/"                                  # After login (default: "/")
+post_logout_redirect = "/"                                 # After logout (default: "/")
+login_route = "/auth/login"                                # Login path (default shown)
+callback_route = "/auth/callback"                          # Callback path (default shown)
+logout_route = "/auth/logout"                              # Logout path (default shown)
+
+# =============================================================================
+# Proxy OIDC Configuration (no feature flag required)
+# =============================================================================
+# Reads identity from HTTP headers set by an authenticating reverse proxy
+# (e.g., oauth2-proxy with Nginx auth_request). All headers have sensible
+# defaults matching oauth2-proxy conventions.
+[http.proxy_oidc]
+user_header = "X-Auth-Request-User"                        # Required header (default shown)
+email_header = "X-Auth-Request-Email"                      # Email header (default shown)
+groups_header = "X-Auth-Request-Groups"                    # Comma-separated groups (default shown)
+preferred_username_header = "X-Auth-Request-Preferred-Username"  # Display name (default shown)
+access_token_header = "X-Auth-Request-Access-Token"        # Access token (default shown)
 
 # =============================================================================
 # Basic Auth Configuration (requires 'basic-auth' feature)
@@ -175,6 +197,7 @@ exclude = [
 # - timeout
 # - catch-panic
 # - session (requires 'session' feature)
+# - proxy-oidc
 
 # =============================================================================
 # Database Configuration (requires 'postgres' feature)

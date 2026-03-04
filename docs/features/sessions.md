@@ -274,18 +274,21 @@ curl -b cookies.txt -X DELETE http://localhost:3000/cart
 Combine sessions with authentication for user-specific data:
 
 ```rust
-use axum_conf::{KeycloakToken, Session};
+use axum_conf::AuthenticatedIdentity;
+use tower_sessions::Session;
 
 async fn save_user_data(
-    token: KeycloakToken,
+    identity: AuthenticatedIdentity,
     session: Session,
     Json(data): Json<UserData>,
 ) {
     // Store with user ID as prefix for isolation
-    let key = format!("user:{}:data", token.subject());
+    let key = format!("user:{}:data", identity.user);
     session.insert(&key, &data).await.unwrap();
 }
 ```
+
+> **Note**: When the OIDC Authorization Code Flow is enabled, sessions are also used internally to store authentication tokens. The session-to-identity middleware automatically converts stored tokens into `AuthenticatedIdentity`, with transparent refresh when tokens expire.
 
 ## Session Storage
 

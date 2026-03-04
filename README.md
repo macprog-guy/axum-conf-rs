@@ -97,6 +97,7 @@ curl http://localhost:3000/metrics # Prometheus metrics
 | **Rate limiting** | Per-IP request throttling | 100 req/sec |
 | **Security headers** | X-Frame-Options, X-Content-Type-Options | Enabled |
 | **Static files** | Serve assets, SPAs, protected downloads | Available |
+| **Authentication** | OIDC, Basic Auth, Proxy OIDC with unified identity | Available |
 | **Panic recovery** | Catches panics, returns 500, keeps running | Enabled |
 | **Graceful shutdown** | Handles SIGTERM, drains connections | 30s timeout |
 | **Compression** | gzip, brotli, deflate, zstd | Available |
@@ -110,7 +111,7 @@ Enable optional capabilities by category:
 | Feature | What it adds |
 |---------|--------------|
 | `postgres` | PostgreSQL connection pooling with sqlx |
-| `keycloak` | OIDC/JWT authentication via Keycloak |
+| `keycloak` | OIDC/JWT authentication via Keycloak (Bearer-only and Authorization Code Flow) |
 | `basic-auth` | HTTP Basic Auth and API key authentication |
 | `session` | Cookie-based session management |
 | `opentelemetry` | Distributed tracing with OTLP export |
@@ -157,6 +158,7 @@ Most features work together, with one important exception:
 | `postgres` | All features | Independent database layer |
 | `session` | All features | Required by `keycloak` |
 | `opentelemetry` | All features | Independent tracing layer |
+| Proxy OIDC | All features | No feature flag; configured via `[http.proxy_oidc]` |
 
 **Important:** `keycloak` and `basic-auth` are mutually exclusive. Choose one authentication method per application.
 

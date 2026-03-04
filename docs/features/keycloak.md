@@ -1,6 +1,11 @@
 # Keycloak/OIDC Authentication
 
-The `keycloak` feature adds OpenID Connect (OIDC) authentication with JWT validation, role-based access control, and token claim extraction.
+The `keycloak` feature adds OpenID Connect (OIDC) authentication with two modes:
+
+- **Bearer-Only (API)**: Validates JWT tokens in `Authorization: Bearer` headers. Best for APIs and service-to-service communication.
+- **Authorization Code Flow (Browser)**: Full login/logout flow with session-based identity. Best for web applications with browser users.
+
+Both modes produce a unified `AuthenticatedIdentity` available as an Axum extractor.
 
 ## Enable the Feature
 
@@ -12,10 +17,12 @@ axum-conf = { version = "0.3", features = ["keycloak"] }
 
 ## Configuration
 
+### Bearer-Only Mode (API)
+
 ```toml
 # config/prod.toml
 [http.oidc]
-issuer_url = "https://keycloak.example.com/realms/myrealm"
+issuer_url = "https://keycloak.example.com"
 realm = "myrealm"
 client_id = "my-service"
 client_secret = "{{ OIDC_CLIENT_SECRET }}"
@@ -28,26 +35,159 @@ Set the secret via environment variable:
 export OIDC_CLIENT_SECRET="your-client-secret"
 ```
 
-## Basic Protected Route
+### Authorization Code Flow Mode (Browser)
+
+Adding `redirect_uri` enables the full OIDC login flow with auto-registered routes.
+
+```toml
+# config/prod.toml
+[http.oidc]
+issuer_url = "https://keycloak.example.com"
+realm = "myrealm"
+client_id = "my-web-app"
+client_secret = "{{ OIDC_CLIENT_SECRET }}"
+audiences = ["my-web-app"]
+redirect_uri = "https://myapp.example.com/auth/callback"
+scopes = ["openid", "profile", "email"]
+post_login_redirect = "/dashboard"
+post_logout_redirect = "/"
+```
+
+## Using AuthenticatedIdentity
+
+`AuthenticatedIdentity` is the primary extractor for all authentication methods. It works with both Bearer-only and Auth Code Flow modes.
+
+### Required Authentication
+
+Returns 401 if the request is not authenticated:
 
 ```rust
-use axum::{Json, routing::get};
-use axum_conf::{Config, FluentRouter, Result, KeycloakToken};
+use axum::Json;
+use axum_conf::AuthenticatedIdentity;
 use serde::Serialize;
 
 #[derive(Serialize)]
 struct UserInfo {
-    subject: String,
+    user: String,
     email: Option<String>,
-    name: Option<String>,
+    groups: Vec<String>,
 }
 
-async fn whoami(token: KeycloakToken) -> Json<UserInfo> {
+async fn whoami(identity: AuthenticatedIdentity) -> Json<UserInfo> {
     Json(UserInfo {
-        subject: token.subject().to_string(),
-        email: token.email().map(String::from),
-        name: token.name().map(String::from),
+        user: identity.user,
+        email: identity.email,
+        groups: identity.groups,
     })
+}
+```
+
+### Optional Authentication
+
+Returns `None` for unauthenticated requests instead of 401:
+
+```rust
+use axum::Json;
+use axum_conf::AuthenticatedIdentity;
+
+async fn greet(identity: Option<AuthenticatedIdentity>) -> String {
+    match identity {
+        Some(id) => format!(
+            "Hello, {}!",
+            id.preferred_username.as_deref().unwrap_or(&id.user)
+        ),
+        None => "Hello, anonymous!".to_string(),
+    }
+}
+```
+
+## Authorization Code Flow
+
+### How It Works
+
+```
+  Browser                     Your App                      Keycloak
+    │                            │                              │
+    │  GET /auth/login           │                              │
+    │──────────────────────────▶│                              │
+    │                            │  Generate PKCE + CSRF + nonce│
+    │                            │  Store in session            │
+    │  302 Redirect              │                              │
+    │◀──────────────────────────│                              │
+    │                            │                              │
+    │  GET /realms/.../auth?...  │                              │
+    │─────────────────────────────────────────────────────────▶│
+    │                            │                              │
+    │  User logs in              │                              │
+    │◀─────────────────────────────────────────────────────────│
+    │                            │                              │
+    │  GET /auth/callback?code=…&state=…                       │
+    │──────────────────────────▶│                              │
+    │                            │  Verify CSRF state           │
+    │                            │  Exchange code + PKCE verifier│
+    │                            │─────────────────────────────▶│
+    │                            │  Access + Refresh + ID tokens│
+    │                            │◀─────────────────────────────│
+    │                            │  Validate ID token nonce     │
+    │                            │  Store tokens in session     │
+    │  302 Redirect to /dashboard│                              │
+    │◀──────────────────────────│                              │
+    │                            │                              │
+    │  GET /dashboard            │                              │
+    │──────────────────────────▶│                              │
+    │                            │  Session → AuthenticatedIdentity
+    │  200 OK                    │  (auto-refreshes if expired) │
+    │◀──────────────────────────│                              │
+    │                            │                              │
+    │  GET /auth/logout          │                              │
+    │──────────────────────────▶│                              │
+    │                            │  Flush session               │
+    │  302 Redirect              │  Redirect to Keycloak logout │
+    │◀──────────────────────────│─────────────────────────────▶│
+```
+
+### Keycloak Client Setup
+
+1. Go to your Keycloak realm → **Clients** → **Create client**
+2. Set **Client ID**: `my-web-app`
+3. Set **Client type**: OpenID Connect
+4. Enable **Client authentication** (makes it a confidential client)
+5. Enable **Standard flow** (Authorization Code Flow)
+6. Set **Valid redirect URIs**: `https://myapp.example.com/auth/callback`
+7. Set **Valid post logout redirect URIs**: `https://myapp.example.com/`
+8. Copy the **Client secret** from the Credentials tab
+
+### Complete Working Example
+
+```rust
+use axum::{Json, routing::get};
+use axum_conf::{AuthenticatedIdentity, Config, FluentRouter, Result};
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct UserInfo {
+    user: String,
+    email: Option<String>,
+    preferred_username: Option<String>,
+    groups: Vec<String>,
+}
+
+/// Protected route — requires authentication (401 if not logged in)
+async fn dashboard(identity: AuthenticatedIdentity) -> Json<UserInfo> {
+    Json(UserInfo {
+        user: identity.user,
+        email: identity.email,
+        preferred_username: identity.preferred_username,
+        groups: identity.groups,
+    })
+}
+
+/// Public route — works with or without authentication
+async fn home(identity: Option<AuthenticatedIdentity>) -> String {
+    match identity {
+        Some(id) => format!("Welcome back, {}!", id.preferred_username.as_deref().unwrap_or(&id.user)),
+        None => "Welcome! Please <a href=\"/auth/login\">log in</a>.".to_string(),
+    }
 }
 
 #[tokio::main]
@@ -56,7 +196,8 @@ async fn main() -> Result<()> {
     config.setup_tracing();
 
     FluentRouter::without_state(config)?
-        .route("/me", get(whoami))
+        .route("/", get(home))
+        .route("/dashboard", get(dashboard))
         .setup_middleware()
         .await?
         .start()
@@ -64,16 +205,64 @@ async fn main() -> Result<()> {
 }
 ```
 
-Test with a token:
+With `config/dev.toml`:
 
-```bash
-curl -H "Authorization: Bearer $ACCESS_TOKEN" http://localhost:3000/me
-# Output: {"subject":"user-uuid","email":"user@example.com","name":"John Doe"}
+```toml
+[http]
+bind_port = 3000
+max_payload_size_bytes = "1MiB"
+
+[http.oidc]
+issuer_url = "https://keycloak.example.com"
+realm = "myrealm"
+client_id = "my-web-app"
+client_secret = "{{ OIDC_CLIENT_SECRET }}"
+audiences = ["my-web-app"]
+redirect_uri = "http://localhost:3000/auth/callback"
+post_login_redirect = "/dashboard"
+post_logout_redirect = "/"
 ```
 
-## Extracting Token Claims
+### Auto-Registered Routes
 
-The `KeycloakToken` extractor provides access to JWT claims:
+When `redirect_uri` is set, axum-conf automatically registers these routes:
+
+| Route | Default Path | Purpose |
+|-------|-------------|---------|
+| Login | `/auth/login` | Redirects to Keycloak authorization endpoint |
+| Callback | `/auth/callback` | Handles the authorization code exchange |
+| Logout | `/auth/logout` | Clears session and redirects to Keycloak logout |
+
+These paths are configurable:
+
+```toml
+[http.oidc]
+login_route = "/sso/login"
+callback_route = "/sso/callback"
+logout_route = "/sso/logout"
+```
+
+### Security
+
+The auth code flow includes multiple security measures:
+
+- **PKCE (SHA-256)**: Prevents authorization code interception attacks
+- **CSRF state parameter**: Validates the callback originated from our login request
+- **Nonce validation**: Ensures the ID token was issued for this specific authentication
+- **Transparent token refresh**: Expired access tokens are automatically refreshed using the refresh token (with 30-second buffer before expiry)
+- **Session-based token storage**: Tokens are stored server-side in the session, never exposed to the browser
+
+### Bearer + Session Coexistence
+
+When auth code flow is enabled, both Bearer tokens and session cookies work simultaneously:
+
+- **Bearer token takes precedence**: If a request has a valid `Authorization: Bearer` header, it is used regardless of session state
+- **Session fallback**: Requests without a Bearer token fall back to session-based identity
+- **Passthrough mode**: Unauthenticated requests (no Bearer, no session) pass through without a 401, allowing public routes to work
+
+## Extracting Keycloak-Specific Claims
+
+For Bearer-only mode, when you need Keycloak-specific claims like realm roles and client roles, use `KeycloakToken`:
 
 ```rust
 use axum::Json;
@@ -84,8 +273,6 @@ use serde::Serialize;
 struct TokenInfo {
     subject: String,
     email: Option<String>,
-    name: Option<String>,
-    preferred_username: Option<String>,
     realm_roles: Vec<String>,
     client_roles: Vec<String>,
 }
@@ -94,8 +281,6 @@ async fn token_info(token: KeycloakToken) -> Json<TokenInfo> {
     Json(TokenInfo {
         subject: token.subject().to_string(),
         email: token.email().map(String::from),
-        name: token.name().map(String::from),
-        preferred_username: token.preferred_username().map(String::from),
         realm_roles: token.realm_roles().iter().map(|r| r.to_string()).collect(),
         client_roles: token.client_roles("my-service")
             .iter()
@@ -105,17 +290,18 @@ async fn token_info(token: KeycloakToken) -> Json<TokenInfo> {
 }
 ```
 
+> **Note**: `AuthenticatedIdentity` is the recommended extractor for most use cases. Use `KeycloakToken` only when you need Keycloak-specific claims like `client_roles()`.
+
 ## Role-Based Access Control
 
 Check user roles before allowing access:
 
 ```rust
 use axum::{Json, http::StatusCode};
-use axum_conf::{KeycloakToken, Result};
+use axum_conf::{AuthenticatedIdentity, Result};
 
-async fn admin_only(token: KeycloakToken) -> Result<Json<&'static str>> {
-    // Check realm roles
-    if !token.realm_roles().contains(&"admin".to_string()) {
+async fn admin_only(identity: AuthenticatedIdentity) -> Result<Json<&'static str>> {
+    if !identity.groups.contains(&"admin".to_string()) {
         return Err(axum_conf::Error::Unauthorized(
             "Admin role required".to_string()
         ));
@@ -123,98 +309,7 @@ async fn admin_only(token: KeycloakToken) -> Result<Json<&'static str>> {
 
     Ok(Json("Welcome, admin!"))
 }
-
-async fn service_action(token: KeycloakToken) -> Result<Json<&'static str>> {
-    // Check client-specific roles
-    let client_roles = token.client_roles("my-service");
-
-    if !client_roles.contains(&"write".to_string()) {
-        return Err(axum_conf::Error::Unauthorized(
-            "Write permission required".to_string()
-        ));
-    }
-
-    Ok(Json("Action performed"))
-}
 ```
-
-## Optional Authentication
-
-For routes that work with or without authentication:
-
-```rust
-use axum::Json;
-use axum_conf::KeycloakToken;
-use serde::Serialize;
-
-#[derive(Serialize)]
-struct Greeting {
-    message: String,
-}
-
-async fn greet(token: Option<KeycloakToken>) -> Json<Greeting> {
-    let message = match token {
-        Some(t) => format!("Hello, {}!", t.name().unwrap_or("user")),
-        None => "Hello, anonymous!".to_string(),
-    };
-
-    Json(Greeting { message })
-}
-```
-
-## Service-to-Service Authentication
-
-For backend services using client credentials:
-
-```rust
-use axum::Json;
-use axum_conf::KeycloakToken;
-
-async fn internal_api(token: KeycloakToken) -> Json<&'static str> {
-    // Verify this is a service account (no user, just client)
-    if token.preferred_username().is_some() {
-        // This is a user token, might want different handling
-    }
-
-    // Check service has required scope/role
-    let client_roles = token.client_roles("my-service");
-    if client_roles.contains(&"internal-api".to_string()) {
-        Json("Internal data")
-    } else {
-        Json("Forbidden")
-    }
-}
-```
-
-## Keycloak Setup
-
-### Create Client in Keycloak
-
-1. Go to your Keycloak realm → Clients → Create client
-2. Set Client ID: `my-service`
-3. Enable "Client authentication"
-4. Set Valid redirect URIs (for browser flows)
-5. Copy the client secret to your configuration
-
-### Configure Roles
-
-1. Realm roles: Go to Realm → Realm roles → Create
-2. Client roles: Go to Client → Roles → Create
-
-### Assign Roles to Users
-
-1. Go to Users → Select user → Role mapping
-2. Add realm roles or client roles as needed
-
-## Configuration Options
-
-| Option | Description | Required |
-|--------|-------------|----------|
-| `issuer_url` | Full URL to realm (e.g., `https://kc.example.com/realms/myrealm`) | Yes |
-| `realm` | Realm name | Yes |
-| `client_id` | Client identifier | Yes |
-| `client_secret` | Client secret for validation | Yes |
-| `audiences` | Expected JWT audiences (aud claim) | No |
 
 ## Disabling Authentication for Specific Routes
 
@@ -238,8 +333,6 @@ async fn protected_data() -> &'static str { "Secret" }
 async fn main() -> Result<()> {
     let config = Config::default();
 
-    // Axum applies middleware from the outside in (last to first).
-    // Protected routes have auth middleware applied
     FluentRouter::without_state(config)?
         .route("/protected", get(protected_data))
         .setup_middleware()
@@ -250,9 +343,26 @@ async fn main() -> Result<()> {
 }
 ```
 
+## Configuration Options
+
+| Option | Description | Required | Default |
+|--------|-------------|----------|---------|
+| `issuer_url` | Base URL of the OIDC provider | Yes | — |
+| `realm` | OIDC realm/tenant name | Yes | `"pictet"` |
+| `client_id` | OAuth2 client identifier | Yes | — |
+| `client_secret` | OAuth2 client secret | Yes | — |
+| `audiences` | Expected JWT audiences (aud claim) | No | `[]` |
+| `redirect_uri` | Callback URL; enables auth code flow when set | No | — |
+| `scopes` | OAuth2 scopes to request | No | `["openid", "profile", "email"]` |
+| `post_login_redirect` | Redirect destination after login | No | `"/"` |
+| `post_logout_redirect` | Redirect destination after logout | No | `"/"` |
+| `login_route` | Login endpoint path | No | `"/auth/login"` |
+| `callback_route` | Callback endpoint path | No | `"/auth/callback"` |
+| `logout_route` | Logout endpoint path | No | `"/auth/logout"` |
+
 ## Error Responses
 
-When authentication fails:
+When authentication fails (Bearer-only mode):
 
 ```bash
 # Missing token
@@ -270,6 +380,6 @@ curl -H "Authorization: Bearer $EXPIRED_TOKEN" http://localhost:3000/protected
 
 ## Next Steps
 
+- [Sessions](sessions.md) - Session management details
 - [PostgreSQL](postgres.md) - Add database support
-- [Sessions](sessions.md) - Cookie-based sessions
 - [Security Middleware](../middleware/security.md) - Rate limiting, CORS

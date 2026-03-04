@@ -123,10 +123,12 @@ Integration tests in `tests/` require Docker (testcontainers for Keycloak/Postgr
 All authentication methods produce a unified `AuthenticatedIdentity` (defined in `src/config/http/identity.rs`), available as an Axum extractor:
 
 - **Basic Auth** (`basic-auth` feature) - HTTP Basic Auth and API Key authentication
-- **OIDC** (`keycloak` feature) - Keycloak JWT tokens, mapped via post-OIDC middleware
+- **OIDC** (`keycloak` feature) - Two modes:
+  - **Bearer-only** (default) - Validates JWT tokens in `Authorization: Bearer` headers
+  - **Authorization Code Flow** - Full login/callback/logout flow when `redirect_uri` is configured; uses PKCE, CSRF state, nonce validation; stores tokens in session with transparent refresh
 - **Proxy OIDC** (no feature flag) - Identity from reverse proxy headers (e.g., oauth2-proxy)
 
-Authentication methods are mutually exclusive (validated at config load time). Proxy OIDC passes through without setting identity when headers are absent (no 401).
+OIDC and Basic Auth are mutually exclusive (validated at config load time). Proxy OIDC passes through without setting identity when headers are absent (no 401).
 
 ### Key Patterns
 

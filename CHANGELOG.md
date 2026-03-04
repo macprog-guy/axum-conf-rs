@@ -7,9 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- OIDC Authorization Code Flow with PKCE (SHA-256), CSRF state, and nonce validation
+- Auto-registered login, callback, and logout routes when `redirect_uri` is configured
+- Session-based token storage with transparent access token refresh
+- Proxy OIDC authentication — reads identity from reverse proxy headers (e.g., oauth2-proxy)
+- `AuthenticatedIdentity` unified extractor for all authentication methods (Basic Auth, OIDC, Proxy OIDC)
+- Middleware stack expanded to 19 layers (added Proxy OIDC)
+
+### Changed
+- OIDC middleware uses passthrough mode (`PassthroughMode::Pass`) when auth code flow is enabled, allowing unauthenticated requests to fall through to session-based identity
+
 ### Fixed
 - Shutdown timer now only starts after a shutdown signal is received, preventing premature server termination
 - Static file directories are now automatically set up in `setup_middleware()` (calls `setup_public_files()`, `setup_protected_files()`, and `setup_fallback_files()`)
+- `map_keycloak_to_identity` now handles both `PassthroughMode::Block` (bare `KeycloakToken`) and `PassthroughMode::Pass` (`KeycloakAuthStatus::Success`)
 
 ## [0.3.8] - 2026-01-03
 

@@ -1,4 +1,18 @@
-//! OIDC Authorization Code flow: login, callback, logout handlers and session-to-identity middleware.
+//! OIDC Authorization Code Flow implementation.
+//!
+//! Enabled when `redirect_uri` is set in `[http.oidc]` configuration. Provides:
+//!
+//! - **Login handler**: Generates PKCE challenge (SHA-256), CSRF state, and nonce;
+//!   stores them in the session; redirects to the OIDC provider's authorization endpoint.
+//! - **Callback handler**: Validates CSRF state, exchanges the authorization code with
+//!   the PKCE verifier, validates the ID token nonce, and stores access/refresh/ID tokens
+//!   in the session.
+//! - **Logout handler**: Retrieves the ID token hint, flushes the session, and redirects
+//!   to the provider's end-session endpoint (RP-Initiated Logout).
+//! - **Session-to-identity middleware**: On each request, converts stored session tokens
+//!   into an [`AuthenticatedIdentity`]. Transparently refreshes expired access tokens
+//!   using the refresh token (with a 30-second buffer before expiry). Skips if a Bearer
+//!   token identity is already present, so Bearer always takes precedence.
 
 use std::sync::Arc;
 

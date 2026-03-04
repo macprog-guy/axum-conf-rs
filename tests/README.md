@@ -35,6 +35,18 @@ These tests use [testcontainers](https://testcontainers.com/) to spin up:
 - A real Keycloak instance for authentication
 - A PostgreSQL database (when `postgres` feature is enabled)
 
+### `oidc_code_flow_tests.rs`
+
+OIDC Authorization Code Flow tests that verify the complete login/callback/logout cycle,
+including PKCE, CSRF state validation, nonce verification, session-based token storage,
+and transparent token refresh. Requires a real Keycloak instance via testcontainers.
+
+### `proxy_oidc_tests.rs`
+
+Proxy OIDC middleware tests that verify identity extraction from reverse proxy headers
+(e.g., `X-Auth-Request-User`, `X-Auth-Request-Email`). Tests header parsing, missing
+headers passthrough, custom header names, and group splitting.
+
 ## Running Tests
 
 ```bash
@@ -50,6 +62,8 @@ cargo test --all-features --test '*'
 # Run specific integration test
 cargo test --all-features --test rate_limit_tests
 cargo test --all-features --test oidc_tests
+cargo test --all-features --test oidc_code_flow_tests
+cargo test --all-features --test proxy_oidc_tests
 ```
 
 ## Prerequisites for Integration Tests

@@ -154,7 +154,16 @@ where
         // Public static files added AFTER auth so they're accessible without authentication
         let router = router.setup_public_files()?;
 
+        // OIDC auth code flow routes (login/callback/logout) - public, after auth middleware
+        #[cfg(feature = "keycloak")]
+        let router = router.setup_oidc_routes().await?;
+
         let router = router.setup_user_span(); // 1c. Record username to span (after auth)
+
+        // Session handling must wrap auth middleware so sessions are established
+        // before session_to_identity middleware reads them.
+        #[cfg(feature = "session")]
+        let router = router.setup_session_handling();
 
         let router = router
             .setup_deduplication() // 2. Deduplication

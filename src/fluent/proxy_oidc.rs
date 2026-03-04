@@ -89,14 +89,8 @@ mod tests {
         let config = default_config();
         let mut headers = HeaderMap::new();
         headers.insert("X-Auth-Request-User", "jdoe".parse().unwrap());
-        headers.insert(
-            "X-Auth-Request-Email",
-            "jdoe@example.com".parse().unwrap(),
-        );
-        headers.insert(
-            "X-Auth-Request-Groups",
-            "admin,operators".parse().unwrap(),
-        );
+        headers.insert("X-Auth-Request-Email", "jdoe@example.com".parse().unwrap());
+        headers.insert("X-Auth-Request-Groups", "admin,operators".parse().unwrap());
         headers.insert(
             "X-Auth-Request-Preferred-Username",
             "johndoe".parse().unwrap(),
@@ -111,10 +105,7 @@ mod tests {
         assert_eq!(identity.user, "jdoe");
         assert_eq!(identity.email, Some("jdoe@example.com".to_string()));
         assert_eq!(identity.groups, vec!["admin", "operators"]);
-        assert_eq!(
-            identity.preferred_username,
-            Some("johndoe".to_string())
-        );
+        assert_eq!(identity.preferred_username, Some("johndoe".to_string()));
         assert!(identity.access_token.is_some());
         assert_eq!(identity.access_token.unwrap().0, "eyJhbGciOi...");
     }

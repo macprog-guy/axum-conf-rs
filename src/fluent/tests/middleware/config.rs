@@ -121,8 +121,7 @@ async fn test_api_versioning_disabled_path() {
 #[tokio::test]
 async fn test_sensitive_headers_disabled_path() {
     // Test the early return path when sensitive headers is disabled
-    let config =
-        Config::new().with_excluded_middlewares(vec![HttpMiddleware::SensitiveHeaders]);
+    let config = Config::new().with_excluded_middlewares(vec![HttpMiddleware::SensitiveHeaders]);
 
     let mut app = FluentRouter::without_state(config)
         .unwrap()

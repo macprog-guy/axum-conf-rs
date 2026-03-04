@@ -250,6 +250,27 @@ pub(crate) async fn callback_handler(
         .claims(&oidc.client.id_token_verifier(), &Nonce::new(nonce_secret))
         .map_err(|e| Error::authentication(format!("ID token validation failed: {e}")))?;
 
+    // Log the full ID token claims for debugging
+    if tracing::enabled!(tracing::Level::DEBUG) {
+        let jwt_str = id_token.to_string();
+        let jwt_parts: Vec<&str> = jwt_str.split('.').collect();
+        if jwt_parts.len() == 3 {
+            use base64::Engine;
+            let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+            if let Ok(payload) = engine.decode(jwt_parts[1])
+                && let Ok(raw_claims) =
+                    serde_json::from_slice::<serde_json::Value>(&payload)
+            {
+                tracing::debug!(
+                    id_token_claims = %raw_claims,
+                    has_refresh_token = token_response.refresh_token().is_some(),
+                    expires_in_secs = ?token_response.expires_in().map(|d| d.as_secs()),
+                    "auth code flow token response before session storage"
+                );
+            }
+        }
+    }
+
     // Store tokens in session
     let _ = session
         .insert(
@@ -410,6 +431,15 @@ fn parse_id_token_to_identity(
     let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
     let payload = engine.decode(parts[1]).ok()?;
     let claims: serde_json::Value = serde_json::from_slice(&payload).ok()?;
+
+    tracing::debug!(
+        claim_keys = ?claims.as_object().map(|o| o.keys().collect::<Vec<_>>()),
+        has_sub = claims.get("sub").is_some(),
+        has_email = claims.get("email").is_some(),
+        has_preferred_username = claims.get("preferred_username").is_some(),
+        has_realm_access = claims.get("realm_access").is_some(),
+        "id token claims shape from session"
+    );
 
     let sub = claims.get("sub")?.as_str()?.to_string();
 

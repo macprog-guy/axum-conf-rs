@@ -32,7 +32,7 @@
 //! client_secret = "{{ OIDC_CLIENT_SECRET }}"
 //! audiences = ["my-app"]
 //! redirect_uri = "https://myapp.example.com/auth/callback"
-//! scopes = ["openid", "profile", "email"]
+//! scopes = ["openid"]
 //! post_login_redirect = "/"
 //! post_logout_redirect = "/"
 //! ```
@@ -64,7 +64,7 @@ use serde::Deserialize;
 /// # Authorization Code Flow (optional)
 ///
 /// - `redirect_uri` - Callback URL registered with the OIDC provider. Enables auth code flow.
-/// - `scopes` - OAuth2 scopes to request (default: `["openid", "profile", "email"]`)
+/// - `scopes` - OAuth2 scopes to request (default: `["openid"]`)
 /// - `post_login_redirect` - Where to redirect after login (default: `"/"`)
 /// - `post_logout_redirect` - Where to redirect after logout (default: `"/"`)
 /// - `login_route` - Login endpoint path (default: `"/auth/login"`)
@@ -87,7 +87,7 @@ pub struct HttpOidcConfig {
     #[serde(default)]
     pub redirect_uri: Option<String>,
 
-    /// OAuth2 scopes to request. Defaults to `["openid", "profile", "email"]`.
+    /// OAuth2 scopes to request. Defaults to `["openid"]`.
     #[serde(default = "HttpOidcConfig::default_scopes")]
     pub scopes: Vec<String>,
 
@@ -119,7 +119,7 @@ impl HttpOidcConfig {
     }
 
     pub fn default_scopes() -> Vec<String> {
-        vec!["openid".into(), "profile".into(), "email".into()]
+        vec!["openid".into()]
     }
 
     pub fn default_redirect() -> String {
@@ -229,7 +229,7 @@ format = "json"
         assert!(oidc.client_secret == Sensitive::from("my-secret"));
         // Auth code flow fields should have defaults
         assert!(oidc.redirect_uri.is_none());
-        assert_eq!(oidc.scopes, vec!["openid", "profile", "email"]);
+        assert_eq!(oidc.scopes, vec!["openid"]);
         assert_eq!(oidc.post_login_redirect, "/");
         assert_eq!(oidc.post_logout_redirect, "/");
         assert_eq!(oidc.login_route, "/auth/login");

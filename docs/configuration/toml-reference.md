@@ -87,7 +87,7 @@ audiences = ["my-service", "account"]        # Expected JWT audiences
 
 # Authorization Code Flow (optional — enabled by setting redirect_uri)
 redirect_uri = "https://myapp.example.com/auth/callback"  # Enables login flow
-scopes = ["openid", "profile", "email"]                   # OAuth2 scopes (default shown)
+scopes = ["openid"]                                       # OAuth2 scopes (default shown)
 post_login_redirect = "/"                                  # After login (default: "/")
 post_logout_redirect = "/"                                 # After logout (default: "/")
 login_route = "/auth/login"                                # Login path (default shown)

@@ -15,6 +15,8 @@
 // Internal submodules (not part of the old public API, stay private)
 #[cfg(feature = "basic-auth")]
 mod basic_auth;
+#[cfg(feature = "keycloak")]
+mod browser_redirect;
 #[cfg(feature = "deduplication")]
 mod dedup;
 #[cfg(feature = "keycloak")]

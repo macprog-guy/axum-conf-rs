@@ -283,11 +283,16 @@ impl HttpConfig {
             basic_auth_config.validate()?;
         }
 
-        // Mutual exclusion: basic_auth and oidc cannot both be configured
+        // Mutual exclusion: basic_auth and oidc cannot both be configured in bearer-only mode.
+        // When OIDC auth code flow is enabled (redirect_uri set), Basic Auth can coexist
+        // to serve API clients alongside browser-based OIDC login.
         #[cfg(all(feature = "basic-auth", feature = "keycloak"))]
-        if self.basic_auth.is_some() && self.oidc.is_some() {
+        if let (Some(_basic_auth), Some(oidc)) = (&self.basic_auth, &self.oidc)
+            && !oidc.auth_code_flow_enabled()
+        {
             return Err(crate::Error::invalid_input(
-                "Cannot configure both [http.basic_auth] and [http.oidc]. Choose one authentication method.",
+                "Cannot configure both [http.basic_auth] and [http.oidc] in bearer-only mode. \
+                 Either enable auth code flow by setting redirect_uri, or choose one authentication method.",
             ));
         }
 

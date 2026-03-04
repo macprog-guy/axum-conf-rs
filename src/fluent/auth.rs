@@ -254,8 +254,21 @@ where
         if let Some(basic_auth_config) = &self.config.http.basic_auth
             && self.is_middleware_enabled(HttpMiddleware::BasicAuth)
         {
+            // When OIDC auth code flow is also configured, Basic Auth passes through
+            // requests with no credentials so OIDC session auth can handle them.
+            #[cfg(feature = "keycloak")]
+            let passthrough = self
+                .config
+                .http
+                .oidc
+                .as_ref()
+                .is_some_and(|o| o.auth_code_flow_enabled());
+            #[cfg(not(feature = "keycloak"))]
+            let passthrough = false;
+
             tracing::trace!(
                 mode = ?basic_auth_config.mode,
+                passthrough,
                 "BasicAuth middleware enabled"
             );
             let config = Arc::new(basic_auth_config.clone());
@@ -264,7 +277,7 @@ where
                 .inner
                 .route_layer(axum::middleware::from_fn(move |request, next| {
                     let config = Arc::clone(&config);
-                    basic_auth::basic_auth_middleware(config, request, next)
+                    basic_auth::basic_auth_middleware(config, passthrough, request, next)
                 }));
         }
         Ok(self)
@@ -300,6 +313,58 @@ where
                 .route_layer(axum::middleware::from_fn(move |request, next| {
                     let config = std::sync::Arc::clone(&config);
                     super::proxy_oidc::proxy_oidc_middleware(config, request, next)
+                }));
+        }
+        self
+    }
+
+    /// Sets up browser login redirect middleware.
+    ///
+    /// When OIDC auth code flow is enabled with `auto_redirect_to_login = true`,
+    /// unauthenticated browser requests (Accept: text/html) are redirected to the
+    /// login route. The original URL is stored in the session for post-login redirect.
+    ///
+    /// This must be added as the innermost route_layer (before OIDC and BasicAuth)
+    /// so it runs AFTER all authentication middleware has resolved identity.
+    #[cfg(feature = "keycloak")]
+    pub fn setup_browser_login_redirect(mut self) -> Self {
+        if let Some(oidc) = &self.config.http.oidc
+            && oidc.auth_code_flow_enabled()
+            && oidc.auto_redirect_to_login
+            && self.is_middleware_enabled(HttpMiddleware::Oidc)
+        {
+            tracing::trace!(
+                login_route = %oidc.login_route,
+                "Browser login redirect middleware enabled"
+            );
+
+            // Build skip paths: auth routes + health/metrics
+            let mut skip_paths = vec![
+                oidc.login_route.clone(),
+                oidc.callback_route.clone(),
+                oidc.logout_route.clone(),
+                self.config.http.liveness_route.clone(),
+                self.config.http.readiness_route.clone(),
+                self.config.http.metrics_route.clone(),
+            ];
+
+            // Also skip static file paths
+            for dir in &self.config.http.directories {
+                if let crate::StaticDirRoute::Route(path) = &dir.route {
+                    skip_paths.push(path.clone());
+                }
+            }
+
+            let config = std::sync::Arc::new(super::browser_redirect::BrowserRedirectConfig {
+                login_route: oidc.login_route.clone(),
+                skip_paths,
+            });
+
+            self.inner = self
+                .inner
+                .route_layer(axum::middleware::from_fn(move |request, next| {
+                    let config = std::sync::Arc::clone(&config);
+                    super::browser_redirect::browser_redirect_middleware(config, request, next)
                 }));
         }
         self

@@ -90,24 +90,25 @@ Default features are disabled. Most tests require `--all-features`.
 Middleware is added innermost-to-outermost. The **last layer added executes first** on incoming requests:
 
 1. Liveness/Readiness (innermost - health endpoints)
-2. OIDC Authentication
-3. Basic Auth / API Key Authentication
-4. Proxy OIDC Authentication
-5. Request Deduplication
-6. Concurrency Limit
-7. Max Payload Size
-8. Compression
-9. Path Normalization
-10. Sensitive Headers
-11. Request ID (UUIDv7)
-12. API Versioning
-13. CORS
-14. Security Headers (Helmet)
-15. Logging
-16. Metrics (Prometheus)
-17. Timeout
-18. Rate Limiting
-19. Panic Catching (outermost)
+2. Browser Login Redirect (redirects unauthenticated browsers to login)
+3. OIDC Authentication
+4. Basic Auth / API Key Authentication
+5. Proxy OIDC Authentication
+6. Request Deduplication
+7. Concurrency Limit
+8. Max Payload Size
+9. Compression
+10. Path Normalization
+11. Sensitive Headers
+12. Request ID (UUIDv7)
+13. API Versioning
+14. CORS
+15. Security Headers (Helmet)
+16. Logging
+17. Metrics (Prometheus)
+18. Timeout
+19. Rate Limiting
+20. Panic Catching (outermost)
 
 ### Test Organization
 
@@ -128,7 +129,7 @@ All authentication methods produce a unified `AuthenticatedIdentity` (defined in
   - **Authorization Code Flow** - Full login/callback/logout flow when `redirect_uri` is configured; uses PKCE, CSRF state, nonce validation; stores tokens in session with transparent refresh
 - **Proxy OIDC** (no feature flag) - Identity from reverse proxy headers (e.g., oauth2-proxy)
 
-OIDC and Basic Auth are mutually exclusive (validated at config load time). Proxy OIDC passes through without setting identity when headers are absent (no 401).
+OIDC and Basic Auth can coexist when OIDC auth code flow is enabled (`redirect_uri` set), allowing browser users (OIDC) and API clients (Basic Auth/API keys) in the same app. In bearer-only mode (no `redirect_uri`), they remain mutually exclusive since both compete for the `Authorization` header. When `auto_redirect_to_login = true`, unauthenticated browser requests are automatically redirected to the login route. Proxy OIDC passes through without setting identity when headers are absent (no 401).
 
 ### Key Patterns
 

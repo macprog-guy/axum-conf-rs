@@ -48,7 +48,7 @@ client_id = "my-web-app"
 client_secret = "{{ OIDC_CLIENT_SECRET }}"
 audiences = ["my-web-app"]
 redirect_uri = "https://myapp.example.com/auth/callback"
-scopes = ["openid", "profile", "email"]
+scopes = ["openid"]
 post_login_redirect = "/dashboard"
 post_logout_redirect = "/"
 ```
@@ -353,7 +353,7 @@ async fn main() -> Result<()> {
 | `client_secret` | OAuth2 client secret | Yes | — |
 | `audiences` | Expected JWT audiences (aud claim) | No | `[]` |
 | `redirect_uri` | Callback URL; enables auth code flow when set | No | — |
-| `scopes` | OAuth2 scopes to request | No | `["openid", "profile", "email"]` |
+| `scopes` | OAuth2 scopes to request | No | `["openid"]` |
 | `post_login_redirect` | Redirect destination after login | No | `"/"` |
 | `post_logout_redirect` | Redirect destination after logout | No | `"/"` |
 | `login_route` | Login endpoint path | No | `"/auth/login"` |

@@ -25,6 +25,15 @@ fn keycloak_token_to_identity(
         axum_keycloak_auth::decode::ProfileAndEmail,
     >,
 ) -> crate::AuthenticatedIdentity {
+    tracing::debug!(
+        subject = %token.subject,
+        email = %token.extra.email.email,
+        preferred_username = %token.extra.profile.preferred_username,
+        role_count = token.roles.len(),
+        roles = ?token.roles,
+        "bearer token claims before identity mapping"
+    );
+
     crate::AuthenticatedIdentity {
         method: crate::AuthMethod::Oidc,
         user: token.subject.clone(),

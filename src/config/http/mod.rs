@@ -6,6 +6,7 @@ mod cors;
 mod dedup;
 mod identity;
 mod middleware;
+mod role_extractors;
 mod oidc;
 mod proxy_oidc;
 mod staticdir;
@@ -18,6 +19,7 @@ pub use cors::*;
 pub use dedup::*;
 pub use identity::*;
 pub use middleware::*;
+pub use role_extractors::*;
 #[cfg(feature = "keycloak")]
 pub use oidc::*;
 pub use proxy_oidc::*;

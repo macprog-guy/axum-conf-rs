@@ -336,22 +336,24 @@ async fn token_info(token: KeycloakToken) -> Json<TokenInfo> {
 
 ## Role-Based Access Control
 
-Check user roles before allowing access:
+Use the role extractors to gate routes by the roles in `AuthenticatedIdentity`. Roles are extracted from the JWT claim configured via `roles_claim` (default: `applicationRoles`).
 
 ```rust
-use axum::{Json, http::StatusCode};
-use axum_conf::{AuthenticatedIdentity, Result};
+use axum_conf::{role, roles, WithRole, AnyRole};
 
-async fn admin_only(identity: AuthenticatedIdentity) -> Result<Json<&'static str>> {
-    if !identity.groups.contains(&"admin".to_string()) {
-        return Err(axum_conf::Error::Unauthorized(
-            "Admin role required".to_string()
-        ));
-    }
+role!(Admin => "admin");
+roles!(EditorOrViewer => "editor", "viewer");
 
-    Ok(Json("Welcome, admin!"))
+async fn admin_only(admin: WithRole<Admin>) -> String {
+    format!("Welcome admin {}!", admin.user)
+}
+
+async fn content(user: AnyRole<EditorOrViewer>) -> String {
+    format!("Content for {}", user.user)
 }
 ```
+
+See [Role-Based Access Control](role-based-access.md) for the full guide on `WithRole`, `AnyRole`, and `AllRoles` extractors.
 
 ## Disabling Authentication for Specific Routes
 
@@ -423,6 +425,7 @@ curl -H "Authorization: Bearer $EXPIRED_TOKEN" http://localhost:3000/protected
 
 ## Next Steps
 
+- [Role-Based Access Control](role-based-access.md) - Gate routes by role
 - [Sessions](sessions.md) - Session management details
 - [PostgreSQL](postgres.md) - Add database support
 - [Security Middleware](../middleware/security.md) - Rate limiting, CORS

@@ -1,6 +1,6 @@
 [package]
 name = "axum-conf"
-version = "0.3.24"
+version = "0.3.25"
 edition = "2024"
 authors = ["Eric Methot <em@ericmethot.com>"]
 description = "A library to simplify the use of Axum, Tokio and Postgres together using configuration. It comes with batteries included and many features can be feature activated."
@@ -27,7 +27,7 @@ lto = true
 # Core dependencies (always required)
 axum = { version = "0.8", features = ["default", "http2"] }
 byte-unit = { version = "5.2", features = ["serde"] }
-ruts = "0.8"
+ruts = "0.9"
 http = "1.4"
 http-body = "1.0"
 http-body-util = "0.1"
@@ -42,7 +42,7 @@ toml = { version = "0.9", features = ["preserve_order"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json", "ansi"] }
 url = "2.5"
-uuid = { version = "1.21", features = ["v7", "serde"] }
+uuid = { version = "1", features = ["v7", "serde"] }
 zeroize = { version = "1.8", features = ["derive"] }
 
 # tower-http base features (always needed for catch-panic, trace, timeout, request-id, fs)
@@ -50,8 +50,8 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "timeout", "request-id", "fs", "catch-panic", "set-header"] }
 
 # Feature-gated dependencies - High Impact
-axum-helmet = { version = "0.3", optional = true }
-helmet-core = { version = "0.3", optional = true }
+axum-helmet = { version = "1", optional = true }
+helmet-core = { version = "1", optional = true }
 axum-prometheus = { version = "0.10", optional = true }
 prometheus = { version = "0.14", optional = true }
 axum-metrics = { version = "0.2.0", optional = true }

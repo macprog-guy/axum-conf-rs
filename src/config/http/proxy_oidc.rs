@@ -47,6 +47,10 @@ pub struct HttpProxyOidcConfig {
     /// Header containing the access token (when proxy passes it).
     #[serde(default = "HttpProxyOidcConfig::default_access_token_header")]
     pub access_token_header: String,
+
+    /// Header containing comma-separated application roles.
+    #[serde(default = "HttpProxyOidcConfig::default_roles_header")]
+    pub roles_header: String,
 }
 
 impl Default for HttpProxyOidcConfig {
@@ -57,6 +61,7 @@ impl Default for HttpProxyOidcConfig {
             groups_header: Self::default_groups_header(),
             preferred_username_header: Self::default_preferred_username_header(),
             access_token_header: Self::default_access_token_header(),
+            roles_header: Self::default_roles_header(),
         }
     }
 }
@@ -80,6 +85,10 @@ impl HttpProxyOidcConfig {
 
     fn default_access_token_header() -> String {
         "X-Auth-Request-Access-Token".to_string()
+    }
+
+    fn default_roles_header() -> String {
+        "X-Auth-Request-Roles".to_string()
     }
 }
 

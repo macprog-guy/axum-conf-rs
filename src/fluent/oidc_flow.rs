@@ -358,6 +358,7 @@ pub(crate) async fn logout_handler(
 /// Skips if an identity is already set (e.g. from Bearer token validation).
 /// Transparently refreshes expired access tokens when a refresh token is available.
 pub(crate) async fn session_to_identity(
+    roles_claim: std::sync::Arc<String>,
     mut request: axum::extract::Request,
     next: Next,
 ) -> Response {
@@ -420,7 +421,8 @@ pub(crate) async fn session_to_identity(
     // Build identity from stored ID token claims
     if let Ok(Some(id_token_str)) = session.get::<String>(SESSION_ID_TOKEN).await {
         let current_access: Option<String> = session.get(SESSION_ACCESS_TOKEN).await.ok().flatten();
-        if let Some(identity) = parse_id_token_to_identity(&id_token_str, current_access.as_deref())
+        if let Some(identity) =
+            parse_id_token_to_identity(&id_token_str, current_access.as_deref(), &roles_claim)
         {
             request.extensions_mut().insert(identity);
         }
@@ -438,6 +440,7 @@ pub(crate) async fn session_to_identity(
 fn parse_id_token_to_identity(
     id_token_jwt: &str,
     access_token: Option<&str>,
+    roles_claim: &str,
 ) -> Option<AuthenticatedIdentity> {
     // JWT format: header.payload.signature
     let parts: Vec<&str> = id_token_jwt.split('.').collect();
@@ -471,10 +474,21 @@ fn parse_id_token_to_identity(
         .and_then(|v| v.as_str())
         .map(String::from);
 
-    // Extract groups/roles from realm_access.roles (Keycloak convention)
+    // Extract groups from realm_access.roles (Keycloak convention)
     let groups = claims
         .get("realm_access")
         .and_then(|ra| ra.get("roles"))
+        .and_then(|r| r.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Extract application roles from the configured top-level claim
+    let roles = claims
+        .get(roles_claim)
         .and_then(|r| r.as_array())
         .map(|arr| {
             arr.iter()
@@ -488,6 +502,7 @@ fn parse_id_token_to_identity(
         user: sub,
         email,
         groups,
+        roles,
         preferred_username,
         access_token: access_token.map(Sensitive::from),
     })
@@ -526,7 +541,7 @@ mod tests {
         });
         let jwt = fake_jwt(&claims);
 
-        let identity = parse_id_token_to_identity(&jwt, Some("access-tok")).unwrap();
+        let identity = parse_id_token_to_identity(&jwt, Some("access-tok"), "applicationRoles").unwrap();
         assert_eq!(identity.user, "user-123");
         assert_eq!(identity.email.as_deref(), Some("user@example.com"));
         assert_eq!(identity.preferred_username.as_deref(), Some("jdoe"));
@@ -540,7 +555,7 @@ mod tests {
         let claims = serde_json::json!({ "sub": "user-456" });
         let jwt = fake_jwt(&claims);
 
-        let identity = parse_id_token_to_identity(&jwt, None).unwrap();
+        let identity = parse_id_token_to_identity(&jwt, None, "applicationRoles").unwrap();
         assert_eq!(identity.user, "user-456");
         assert!(identity.email.is_none());
         assert!(identity.preferred_username.is_none());
@@ -553,19 +568,19 @@ mod tests {
         let claims = serde_json::json!({ "email": "no-sub@example.com" });
         let jwt = fake_jwt(&claims);
 
-        assert!(parse_id_token_to_identity(&jwt, None).is_none());
+        assert!(parse_id_token_to_identity(&jwt, None, "applicationRoles").is_none());
     }
 
     #[test]
     fn test_parse_id_token_invalid_jwt_format() {
-        assert!(parse_id_token_to_identity("not-a-jwt", None).is_none());
-        assert!(parse_id_token_to_identity("only.two", None).is_none());
-        assert!(parse_id_token_to_identity("", None).is_none());
+        assert!(parse_id_token_to_identity("not-a-jwt", None, "applicationRoles").is_none());
+        assert!(parse_id_token_to_identity("only.two", None, "applicationRoles").is_none());
+        assert!(parse_id_token_to_identity("", None, "applicationRoles").is_none());
     }
 
     #[test]
     fn test_parse_id_token_invalid_base64_payload() {
-        assert!(parse_id_token_to_identity("a.!!!invalid.c", None).is_none());
+        assert!(parse_id_token_to_identity("a.!!!invalid.c", None, "applicationRoles").is_none());
     }
 
     #[test]
@@ -576,7 +591,7 @@ mod tests {
         let sig = engine.encode(b"sig");
         let jwt = format!("{header}.{payload}.{sig}");
 
-        assert!(parse_id_token_to_identity(&jwt, None).is_none());
+        assert!(parse_id_token_to_identity(&jwt, None, "applicationRoles").is_none());
     }
 
     #[test]
@@ -587,8 +602,42 @@ mod tests {
         });
         let jwt = fake_jwt(&claims);
 
-        let identity = parse_id_token_to_identity(&jwt, None).unwrap();
+        let identity = parse_id_token_to_identity(&jwt, None, "applicationRoles").unwrap();
         assert!(identity.groups.is_empty());
+    }
+
+    #[test]
+    fn test_parse_id_token_with_application_roles() {
+        let claims = serde_json::json!({
+            "sub": "user-roles",
+            "applicationRoles": ["editor", "viewer"]
+        });
+        let jwt = fake_jwt(&claims);
+
+        let identity = parse_id_token_to_identity(&jwt, None, "applicationRoles").unwrap();
+        assert_eq!(identity.roles, vec!["editor", "viewer"]);
+        assert!(identity.groups.is_empty());
+    }
+
+    #[test]
+    fn test_parse_id_token_with_custom_roles_claim() {
+        let claims = serde_json::json!({
+            "sub": "user-custom",
+            "myAppRoles": ["admin", "manager"]
+        });
+        let jwt = fake_jwt(&claims);
+
+        let identity = parse_id_token_to_identity(&jwt, None, "myAppRoles").unwrap();
+        assert_eq!(identity.roles, vec!["admin", "manager"]);
+    }
+
+    #[test]
+    fn test_parse_id_token_roles_default_to_empty() {
+        let claims = serde_json::json!({ "sub": "user-no-roles" });
+        let jwt = fake_jwt(&claims);
+
+        let identity = parse_id_token_to_identity(&jwt, None, "applicationRoles").unwrap();
+        assert!(identity.roles.is_empty());
     }
 
     #[test]

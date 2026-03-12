@@ -121,6 +121,7 @@ fn try_basic_auth(
                 user: username.to_string(),
                 email: user.email.clone(),
                 groups: user.groups.clone(),
+                roles: user.roles.clone(),
                 preferred_username: user.preferred_username.clone(),
                 access_token: None,
             }));
@@ -152,6 +153,7 @@ fn try_api_key_auth(
                     .unwrap_or_else(|| "api-key".to_string()),
                 email: key_config.email.clone(),
                 groups: key_config.groups.clone(),
+                roles: key_config.roles.clone(),
                 preferred_username: key_config.preferred_username.clone(),
                 access_token: None,
             }));
@@ -251,6 +253,7 @@ mod tests {
                 password: Sensitive::from("testpass"),
                 email: None,
                 groups: vec![],
+                roles: vec![],
                 preferred_username: None,
             }],
             api_keys: vec![BasicAuthApiKey {
@@ -258,6 +261,7 @@ mod tests {
                 name: Some("test-key".to_string()),
                 email: None,
                 groups: vec![],
+                roles: vec![],
                 preferred_username: None,
             }],
         }
@@ -422,6 +426,7 @@ mod tests {
                 name: None,
                 email: None,
                 groups: vec![],
+                roles: vec![],
                 preferred_username: None,
             }],
         };
@@ -522,6 +527,7 @@ mod tests {
                 name: Some("custom".to_string()),
                 email: None,
                 groups: vec![],
+                roles: vec![],
                 preferred_username: None,
             }],
         };

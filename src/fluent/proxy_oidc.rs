@@ -65,11 +65,23 @@ fn extract_identity(
         .filter(|s| !s.is_empty())
         .map(Sensitive::from);
 
+    let roles = headers
+        .get(&config.roles_header)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| {
+            s.split(',')
+                .map(|r| r.trim().to_string())
+                .filter(|r| !r.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+
     Some(AuthenticatedIdentity {
         method: AuthMethod::ProxyOidc,
         user,
         email,
         groups,
+        roles,
         preferred_username,
         access_token,
     })

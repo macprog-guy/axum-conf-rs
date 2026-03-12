@@ -50,6 +50,7 @@ mod tests {
             user: "user-id".to_string(),
             email: None,
             groups: vec![],
+            roles: vec![],
             preferred_username: Some("display-name".to_string()),
             access_token: None,
         });
@@ -66,6 +67,7 @@ mod tests {
             user: "api-service".to_string(),
             email: None,
             groups: vec![],
+            roles: vec![],
             preferred_username: None,
             access_token: None,
         });

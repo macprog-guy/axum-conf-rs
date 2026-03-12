@@ -49,6 +49,8 @@ pub struct AuthenticatedIdentity {
     pub email: Option<String>,
     /// Groups the authenticated user belongs to.
     pub groups: Vec<String>,
+    /// Application-specific roles assigned to the authenticated user.
+    pub roles: Vec<String>,
     /// Preferred username for display purposes (optional).
     pub preferred_username: Option<String>,
     /// Access token (optional, wrapped in Sensitive to prevent logging).

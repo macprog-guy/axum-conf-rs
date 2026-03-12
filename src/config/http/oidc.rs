@@ -117,6 +117,12 @@ pub struct HttpOidcConfig {
     /// Defaults to `false`.
     #[serde(default)]
     pub auto_redirect_to_login: bool,
+
+    /// JWT claim key containing application-specific roles.
+    /// Populated from a custom top-level JWT claim (e.g., set via a Keycloak protocol mapper).
+    /// Defaults to `"applicationRoles"`.
+    #[serde(default = "HttpOidcConfig::default_roles_claim")]
+    pub roles_claim: String,
 }
 
 #[allow(unused)]
@@ -143,6 +149,10 @@ impl HttpOidcConfig {
 
     pub fn default_logout_route() -> String {
         "/auth/logout".into()
+    }
+
+    pub fn default_roles_claim() -> String {
+        "applicationRoles".into()
     }
 
     /// Returns true if the Authorization Code flow is enabled (redirect_uri is set).

@@ -24,6 +24,8 @@ fn keycloak_token_to_identity(
         crate::Role,
         axum_keycloak_auth::decode::ProfileAndEmail,
     >,
+    roles_claim: &str,
+    raw_claims: Option<&std::collections::HashMap<String, serde_json::Value>>,
 ) -> crate::AuthenticatedIdentity {
     tracing::debug!(
         subject = %token.subject,
@@ -33,6 +35,16 @@ fn keycloak_token_to_identity(
         roles = ?token.roles,
         "bearer token claims before identity mapping"
     );
+
+    let roles = raw_claims
+        .and_then(|claims| claims.get(roles_claim))
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
 
     crate::AuthenticatedIdentity {
         method: crate::AuthMethod::Oidc,
@@ -46,6 +58,7 @@ fn keycloak_token_to_identity(
             }
         },
         groups: token.roles.iter().map(|r| r.role().clone()).collect(),
+        roles,
         preferred_username: {
             let pref = &token.extra.profile.preferred_username;
             if pref.is_empty() {
@@ -60,6 +73,7 @@ fn keycloak_token_to_identity(
 
 #[cfg(feature = "keycloak")]
 async fn map_keycloak_to_identity(
+    roles_claim: std::sync::Arc<String>,
     mut request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
@@ -71,17 +85,24 @@ async fn map_keycloak_to_identity(
         crate::Role,
         axum_keycloak_auth::decode::ProfileAndEmail,
     >;
+    type RawClaims = std::collections::HashMap<String, serde_json::Value>;
+
+    let raw_claims = request.extensions().get::<RawClaims>().cloned();
 
     // Extract identity from KeycloakToken.
     // Block mode stores bare KeycloakToken; Pass mode wraps it in KeycloakAuthStatus::Success.
     let identity = request
         .extensions()
         .get::<KcToken>()
-        .map(keycloak_token_to_identity)
+        .map(|t| keycloak_token_to_identity(t, &roles_claim, raw_claims.as_ref()))
         .or_else(|| {
             request.extensions().get::<KcStatus>().and_then(|status| {
                 if let axum_keycloak_auth::KeycloakAuthStatus::Success(token) = status {
-                    Some(keycloak_token_to_identity(token))
+                    Some(keycloak_token_to_identity(
+                        token,
+                        &roles_claim,
+                        raw_claims.as_ref(),
+                    ))
                 } else {
                     None
                 }
@@ -145,10 +166,19 @@ where
                 PassthroughMode::Block
             };
 
+            let roles_claim = std::sync::Arc::new(oidc.roles_claim.clone());
+
             // Map KeycloakToken → AuthenticatedIdentity (inner route_layer, runs second)
+            let roles_claim_bearer = std::sync::Arc::clone(&roles_claim);
             self.inner = self
                 .inner
-                .route_layer(axum::middleware::from_fn(map_keycloak_to_identity));
+                .route_layer(axum::middleware::from_fn(move |request, next| {
+                    map_keycloak_to_identity(
+                        std::sync::Arc::clone(&roles_claim_bearer),
+                        request,
+                        next,
+                    )
+                }));
 
             // Validate Bearer tokens and set KeycloakToken (outer route_layer, runs first)
             self.inner = self.inner.route_layer(
@@ -164,8 +194,15 @@ where
             // before route_layers). If a Bearer token is present, the route_layers above
             // will overwrite the session identity, so Bearer takes precedence.
             if oidc.auth_code_flow_enabled() {
+                let roles_claim_session = std::sync::Arc::clone(&roles_claim);
                 self.inner = self.inner.layer(axum::middleware::from_fn(
-                    super::oidc_flow::session_to_identity,
+                    move |request, next| {
+                        super::oidc_flow::session_to_identity(
+                            std::sync::Arc::clone(&roles_claim_session),
+                            request,
+                            next,
+                        )
+                    },
                 ));
             }
         }

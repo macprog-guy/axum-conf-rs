@@ -233,6 +233,7 @@ mod tests {
                             user: "test-user".to_string(),
                             email: None,
                             groups: vec![],
+                            roles: vec![],
                             preferred_username: None,
                             access_token: None,
                         });

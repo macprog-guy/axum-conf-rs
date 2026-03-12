@@ -68,6 +68,9 @@ pub struct BasicAuthUser {
     /// Groups the user belongs to.
     #[serde(default)]
     pub groups: Vec<String>,
+    /// Roles assigned to the user.
+    #[serde(default)]
+    pub roles: Vec<String>,
     /// Preferred username for display purposes.
     #[serde(default)]
     pub preferred_username: Option<String>,
@@ -95,6 +98,9 @@ pub struct BasicAuthApiKey {
     /// Groups the API key belongs to.
     #[serde(default)]
     pub groups: Vec<String>,
+    /// Roles assigned to the API key.
+    #[serde(default)]
+    pub roles: Vec<String>,
     /// Preferred username for display purposes.
     #[serde(default)]
     pub preferred_username: Option<String>,
@@ -270,6 +276,7 @@ mod tests {
                 password: Sensitive::from("secret"),
                 email: None,
                 groups: vec![],
+                roles: vec![],
                 preferred_username: None,
             }],
             api_keys: vec![],
@@ -288,6 +295,7 @@ mod tests {
                 name: Some("test-key".to_string()),
                 email: None,
                 groups: vec![],
+                roles: vec![],
                 preferred_username: None,
             }],
             ..Default::default()
@@ -304,6 +312,7 @@ mod tests {
                 password: Sensitive::from("secret"),
                 email: None,
                 groups: vec![],
+                roles: vec![],
                 preferred_username: None,
             }],
             api_keys: vec![],
@@ -321,6 +330,7 @@ mod tests {
                 password: Sensitive::from(""),
                 email: None,
                 groups: vec![],
+                roles: vec![],
                 preferred_username: None,
             }],
             api_keys: vec![],
@@ -339,6 +349,7 @@ mod tests {
                 name: None,
                 email: None,
                 groups: vec![],
+                roles: vec![],
                 preferred_username: None,
             }],
             ..Default::default()
@@ -357,6 +368,7 @@ mod tests {
                 name: None,
                 email: None,
                 groups: vec![],
+                roles: vec![],
                 preferred_username: None,
             }],
         };

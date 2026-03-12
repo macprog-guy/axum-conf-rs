@@ -76,6 +76,7 @@ pub(crate) struct OidcClient {
     client: OidcCoreClient,
     http_client: openidconnect::reqwest::Client,
     scopes: Vec<String>,
+    audiences: Vec<String>,
     post_login_redirect: String,
     post_logout_redirect: String,
     end_session_url: Option<String>,
@@ -121,6 +122,7 @@ impl OidcClient {
             client,
             http_client,
             scopes: config.scopes.clone(),
+            audiences: config.audiences.clone(),
             post_login_redirect: config.post_login_redirect.clone(),
             post_logout_redirect: config.post_logout_redirect.clone(),
             end_session_url,
@@ -247,8 +249,15 @@ pub(crate) async fn callback_handler(
         .id_token()
         .ok_or_else(|| Error::authentication("No ID token in response"))?;
 
+    let trusted_audiences = oidc.audiences.clone();
+    let verifier = oidc
+        .client
+        .id_token_verifier()
+        .set_other_audience_verifier_fn(move |aud| {
+            trusted_audiences.iter().any(|a| a.as_str() == aud.as_str())
+        });
     let _claims = id_token
-        .claims(&oidc.client.id_token_verifier(), &Nonce::new(nonce_secret))
+        .claims(&verifier, &Nonce::new(nonce_secret))
         .map_err(|e| Error::authentication(format!("ID token validation failed: {e}")))?;
 
     // Log the full ID token claims for debugging

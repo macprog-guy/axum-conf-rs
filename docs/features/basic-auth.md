@@ -163,26 +163,33 @@ async fn maybe_protected(identity: Option<AuthenticatedIdentity>) -> Json<Respon
 }
 ```
 
-## Role-Based Logic
+## Role-Based Access Control
 
-Since basic auth doesn't have built-in roles, implement them in your handler:
+Assign roles to users and API keys in configuration, then use the role extractors to gate routes:
+
+```toml
+[[http.basic_auth.users]]
+username = "admin"
+password = "{{ ADMIN_PASSWORD }}"
+roles = ["admin", "editor"]
+
+[[http.basic_auth.api_keys]]
+key = "{{ SERVICE_API_KEY }}"
+name = "content-service"
+roles = ["viewer"]
+```
 
 ```rust
-use axum::{Json, http::StatusCode};
-use axum_conf::{AuthenticatedIdentity, Result, Error};
+use axum_conf::{role, WithRole};
 
-const ADMINS: &[&str] = &["admin", "superuser"];
+role!(Admin => "admin");
 
-async fn admin_only(identity: AuthenticatedIdentity) -> Result<Json<&'static str>> {
-    if !ADMINS.contains(&identity.name()) {
-        return Err(Error::Unauthorized(
-            "Admin access required".to_string()
-        ));
-    }
-
-    Ok(Json("Welcome, admin!"))
+async fn admin_only(admin: WithRole<Admin>) -> String {
+    format!("Welcome, {}!", admin.user)
 }
 ```
+
+See [Role-Based Access Control](role-based-access.md) for the full guide on `WithRole`, `AnyRole`, and `AllRoles` extractors.
 
 ## Custom API Key Header
 
@@ -279,6 +286,7 @@ If you need both user auth and service auth:
 
 ## Next Steps
 
+- [Role-Based Access Control](role-based-access.md) - Gate routes by role
 - [Keycloak/OIDC](keycloak.md) - Full OIDC authentication
 - [Sessions](sessions.md) - Cookie-based sessions
 - [Security Middleware](../middleware/security.md) - Rate limiting, CORS

@@ -7,141 +7,39 @@ use super::user_span;
 use crate::{HttpMiddleware, Result};
 
 #[cfg(feature = "keycloak")]
-use {
-    crate::Role,
-    axum_keycloak_auth::{
-        PassthroughMode, Url, decode::ProfileAndEmail, instance::KeycloakAuthInstance,
-        instance::KeycloakConfig, layer::KeycloakAuthLayer,
-    },
-};
+use std::sync::Arc;
+
+#[cfg(all(feature = "basic-auth", not(feature = "keycloak")))]
+use std::sync::Arc;
 
 #[cfg(feature = "basic-auth")]
-use {super::basic_auth, std::sync::Arc};
-
-#[cfg(feature = "keycloak")]
-fn keycloak_token_to_identity(
-    token: &axum_keycloak_auth::decode::KeycloakToken<
-        crate::Role,
-        axum_keycloak_auth::decode::ProfileAndEmail,
-    >,
-    roles_claim: &str,
-    raw_claims: Option<&std::collections::HashMap<String, serde_json::Value>>,
-) -> crate::AuthenticatedIdentity {
-    tracing::debug!(
-        subject = %token.subject,
-        email = %token.extra.email.email,
-        preferred_username = %token.extra.profile.preferred_username,
-        role_count = token.roles.len(),
-        roles = ?token.roles,
-        "bearer token claims before identity mapping"
-    );
-
-    let roles = raw_claims
-        .and_then(|claims| claims.get(roles_claim))
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    crate::AuthenticatedIdentity {
-        method: crate::AuthMethod::Oidc,
-        user: token.subject.clone(),
-        email: {
-            let email = &token.extra.email.email;
-            if email.is_empty() {
-                None
-            } else {
-                Some(email.clone())
-            }
-        },
-        groups: token.roles.iter().map(|r| r.role().clone()).collect(),
-        roles,
-        preferred_username: {
-            let pref = &token.extra.profile.preferred_username;
-            if pref.is_empty() {
-                None
-            } else {
-                Some(pref.clone())
-            }
-        },
-        access_token: None,
-    }
-}
-
-#[cfg(feature = "keycloak")]
-async fn map_keycloak_to_identity(
-    roles_claim: std::sync::Arc<String>,
-    mut request: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> axum::response::Response {
-    type KcToken = axum_keycloak_auth::decode::KeycloakToken<
-        crate::Role,
-        axum_keycloak_auth::decode::ProfileAndEmail,
-    >;
-    type KcStatus = axum_keycloak_auth::KeycloakAuthStatus<
-        crate::Role,
-        axum_keycloak_auth::decode::ProfileAndEmail,
-    >;
-    type RawClaims = std::collections::HashMap<String, serde_json::Value>;
-
-    let raw_claims = request.extensions().get::<RawClaims>().cloned();
-
-    // Extract identity from KeycloakToken.
-    // Block mode stores bare KeycloakToken; Pass mode wraps it in KeycloakAuthStatus::Success.
-    let identity = request
-        .extensions()
-        .get::<KcToken>()
-        .map(|t| keycloak_token_to_identity(t, &roles_claim, raw_claims.as_ref()))
-        .or_else(|| {
-            request.extensions().get::<KcStatus>().and_then(|status| {
-                if let axum_keycloak_auth::KeycloakAuthStatus::Success(token) = status {
-                    Some(keycloak_token_to_identity(
-                        token,
-                        &roles_claim,
-                        raw_claims.as_ref(),
-                    ))
-                } else {
-                    None
-                }
-            })
-        });
-
-    if let Some(identity) = identity {
-        request.extensions_mut().insert(identity);
-    }
-
-    next.run(request).await
-}
+use super::basic_auth;
 
 impl<State> FluentRouter<State>
 where
     State: Clone + Send + Sync + 'static,
 {
-    /// Sets up OpenID Connect (OIDC) authentication using Keycloak.
+    /// Sets up OpenID Connect (OIDC) Bearer token authentication.
     ///
-    /// Configures JWT token validation and role-based access control. Requires
-    /// the `keycloak` feature to be enabled.
+    /// Configures JWT token validation using JWKS fetched from the OIDC provider.
+    /// Requires the `keycloak` feature to be enabled.
     ///
-    /// When `redirect_uri` is configured, uses `PassthroughMode::Pass` so that
+    /// When `redirect_uri` is configured, uses passthrough mode so that
     /// requests without a Bearer token can be authenticated via session cookies
-    /// instead. Without `redirect_uri`, uses `PassthroughMode::Block` (401 for
-    /// unauthenticated requests).
+    /// instead. Without `redirect_uri`, returns 401 for unauthenticated requests.
     ///
     /// # Configuration
     ///
     /// ```toml
     /// [http.oidc]
-    /// issuer_url = "https://keycloak.example.com/realms/myrealm"
+    /// issuer_url = "https://keycloak.example.com"
     /// realm = "myrealm"
     /// audiences = ["my-client"]
     /// client_id = "my-client"
     /// client_secret = "{{ KEYCLOAK_CLIENT_SECRET }}"
     /// ```
     #[cfg(feature = "keycloak")]
-    pub fn setup_oidc(mut self) -> Result<Self> {
+    pub async fn setup_oidc(mut self) -> Result<Self> {
         if let Some(oidc) = &self.config.http.oidc
             && self.is_middleware_enabled(HttpMiddleware::Oidc)
         {
@@ -151,54 +49,41 @@ where
                 auth_code_flow = oidc.auth_code_flow_enabled(),
                 "OIDC middleware enabled"
             );
-            let keycloak_auth_instance = KeycloakAuthInstance::new(
-                KeycloakConfig::builder()
-                    .server(Url::parse(&oidc.issuer_url)?)
-                    .realm(oidc.realm.clone())
-                    .build(),
-            );
 
-            // When auth code flow is enabled, use Pass mode so requests without
-            // Bearer tokens pass through to session-to-identity middleware.
-            let passthrough_mode = if oidc.auth_code_flow_enabled() {
-                PassthroughMode::Pass
-            } else {
-                PassthroughMode::Block
-            };
+            let issuer_base = oidc.issuer_url.trim_end_matches('/');
+            let issuer = format!("{issuer_base}/realms/{}", oidc.realm);
+            let jwks_url = format!("{issuer}/protocol/openid-connect/certs");
 
-            let roles_claim = std::sync::Arc::new(oidc.roles_claim.clone());
+            let jwks = super::oidc_bearer::JwksProvider::new(jwks_url).await?;
 
-            // Map KeycloakToken → AuthenticatedIdentity (inner route_layer, runs second)
-            let roles_claim_bearer = std::sync::Arc::clone(&roles_claim);
+            let bearer_config = Arc::new(super::oidc_bearer::BearerAuthConfig {
+                audiences: oidc.audiences.clone(),
+                issuer,
+                passthrough: oidc.auth_code_flow_enabled(),
+                roles_claim: oidc.roles_claim.clone(),
+            });
+
+            // Validate Bearer tokens and map to AuthenticatedIdentity (single route_layer)
             self.inner = self
                 .inner
                 .route_layer(axum::middleware::from_fn(move |request, next| {
-                    map_keycloak_to_identity(
-                        std::sync::Arc::clone(&roles_claim_bearer),
+                    super::oidc_bearer::bearer_auth_middleware(
+                        Arc::clone(&jwks),
+                        Arc::clone(&bearer_config),
                         request,
                         next,
                     )
                 }));
 
-            // Validate Bearer tokens and set KeycloakToken (outer route_layer, runs first)
-            self.inner = self.inner.route_layer(
-                KeycloakAuthLayer::<Role, ProfileAndEmail>::builder()
-                    .instance(keycloak_auth_instance)
-                    .passthrough_mode(passthrough_mode)
-                    .expected_audiences(oidc.audiences.clone())
-                    .persist_raw_claims(true)
-                    .build(),
-            );
-
             // When auth code flow is enabled, add session-to-identity as a layer (runs
-            // before route_layers). If a Bearer token is present, the route_layers above
+            // before route_layers). If a Bearer token is present, the route_layer above
             // will overwrite the session identity, so Bearer takes precedence.
             if oidc.auth_code_flow_enabled() {
-                let roles_claim_session = std::sync::Arc::clone(&roles_claim);
+                let roles_claim = Arc::new(oidc.roles_claim.clone());
                 self.inner = self.inner.layer(axum::middleware::from_fn(
                     move |request, next| {
                         super::oidc_flow::session_to_identity(
-                            std::sync::Arc::clone(&roles_claim_session),
+                            Arc::clone(&roles_claim),
                             request,
                             next,
                         )
@@ -413,8 +298,8 @@ where
     /// to the `user` field of the current tracing span. This ensures all
     /// subsequent logs within the request include the authenticated user.
     ///
-    /// Works with both Basic Auth (`AuthenticatedIdentity`) and OIDC
-    /// (`KeycloakToken`) authentication methods.
+    /// Works with all authentication methods (OIDC, Basic Auth, Proxy OIDC)
+    /// via `AuthenticatedIdentity`.
     ///
     /// For unauthenticated requests (e.g., health endpoints), the `user`
     /// field remains empty and won't appear in log output.

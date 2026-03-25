@@ -364,12 +364,6 @@ impl From<rustls::Error> for Error {
     }
 }
 
-#[cfg(feature = "keycloak")]
-impl From<axum_keycloak_auth::error::AuthError> for Error {
-    fn from(err: axum_keycloak_auth::error::AuthError) -> Self {
-        Self::new(ErrorKind::Authentication, err)
-    }
-}
 
 // ============================================================================
 // ErrorResponse

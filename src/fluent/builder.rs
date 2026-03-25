@@ -149,7 +149,7 @@ where
         let router = router.setup_browser_login_redirect();
 
         #[cfg(feature = "keycloak")]
-        let router = router.setup_oidc()?; // 1a. OIDC Authentication (route_layer - applies to existing routes)
+        let router = router.setup_oidc().await?; // 1a. OIDC Authentication (route_layer - applies to existing routes)
 
         #[cfg(feature = "basic-auth")]
         let router = router.setup_basic_auth()?; // 1b. Basic Auth (route_layer - applies to existing routes)

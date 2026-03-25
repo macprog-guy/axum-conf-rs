@@ -225,7 +225,4 @@ pub use error::*;
 pub use fluent::*;
 pub use utils::*;
 
-#[cfg(feature = "keycloak")]
-pub type Role = String;
-
 pub type Result<T> = std::result::Result<T, Error>;

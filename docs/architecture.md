@@ -282,9 +282,9 @@ Features enable additional functionality:
 
     keycloak ──────────▶ session (cookie management)
         │
-        ├──────────────▶ axum-keycloak-auth (JWT validation)
+        ├──────────────▶ jsonwebtoken (Bearer JWT validation)
         │
-        └──────────────▶ openidconnect (auth code flow)
+        └──────────────▶ openidconnect (OIDC discovery + auth code flow)
 
     opentelemetry ─────▶ tracing-opentelemetry
         │

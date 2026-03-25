@@ -1,13 +1,12 @@
 #![cfg(feature = "keycloak")]
 
 use axum::{
-    Extension, Router,
+    Router,
     body::Body,
     http::{Request, StatusCode, header},
     routing::get,
 };
-use axum_conf::Config;
-use axum_keycloak_auth::decode::{KeycloakToken, ProfileAndEmail};
+use axum_conf::{AuthenticatedIdentity, Config};
 use tower::ServiceExt;
 
 #[cfg(feature = "postgres")]
@@ -289,17 +288,12 @@ format = "json"
     assert_eq!(status, StatusCode::OK);
 }
 
-/// Handler that extracts and returns the authenticated username from KeycloakToken
-async fn whoami_handler(
-    Extension(token): Extension<KeycloakToken<String, ProfileAndEmail>>,
-) -> String {
-    // Prefer preferred_username, fall back to subject
-    let username = &token.extra.profile.preferred_username;
-    if !username.is_empty() {
-        username.clone()
-    } else {
-        token.subject.clone()
-    }
+/// Handler that extracts and returns the authenticated username from AuthenticatedIdentity
+async fn whoami_handler(identity: AuthenticatedIdentity) -> String {
+    // Prefer preferred_username, fall back to user (subject)
+    identity
+        .preferred_username
+        .unwrap_or_else(|| identity.user.clone())
 }
 
 #[tokio::test]

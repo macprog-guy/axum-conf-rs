@@ -20,6 +20,8 @@ mod browser_redirect;
 #[cfg(feature = "deduplication")]
 mod dedup;
 #[cfg(feature = "keycloak")]
+mod oidc_bearer;
+#[cfg(feature = "keycloak")]
 mod oidc_flow;
 mod proxy_oidc;
 mod user_span;

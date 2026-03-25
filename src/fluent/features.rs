@@ -15,7 +15,7 @@ use tower_http::{compression::CompressionLayer, decompression::RequestDecompress
 use {http::HeaderName, tower_http::cors::CorsLayer};
 
 #[cfg(feature = "security-headers")]
-use axum_helmet::{Helmet, HelmetLayer};
+use axum_helmet::Helmet;
 
 #[cfg(feature = "session")]
 use tower_sessions::{
@@ -273,12 +273,16 @@ where
         let x_frame = match &self.config.http.x_frame_options.0 {
             crate::XFrameOptions::Deny => axum_helmet::XFrameOptions::Deny,
             crate::XFrameOptions::SameOrigin => axum_helmet::XFrameOptions::SameOrigin,
+            #[allow(deprecated)]
             crate::XFrameOptions::AllowFrom(url) => {
                 axum_helmet::XFrameOptions::AllowFrom(url.clone())
             }
         };
         helmet = helmet.add(x_frame);
-        self.inner = self.inner.layer(HelmetLayer::new(helmet));
+        match helmet.into_layer() {
+            Ok(layer) => self.inner = self.inner.layer(layer),
+            Err(e) => tracing::warn!(error = %e, "Failed to build HelmetLayer"),
+        }
         self
     }
 

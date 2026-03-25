@@ -160,7 +160,7 @@ where
                     "`CatchPanic` was unable to downcast the panic info".to_string()
                 };
 
-                tracing::error!("Service panicked: {}", msg);
+                tracing::error!("{}", msg);
                 if let Some(ch) = &panic_channel {
                     ch.try_send(msg).ok();
                 }

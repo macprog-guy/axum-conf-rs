@@ -35,8 +35,18 @@ struct ApiResponse {
 async fn get_data() -> Json<ApiResponse> {
     Json(ApiResponse {
         message: "Hello from the API!".into(),
-        timestamp: chrono::Utc::now().to_rfc3339(),
+        timestamp: unix_timestamp_secs().to_string(),
     })
+}
+
+/// Seconds since the Unix epoch. A real app would use `chrono`/`time` for a
+/// formatted timestamp; this keeps the example dependency-free.
+fn unix_timestamp_secs() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 #[tokio::main]
@@ -87,23 +97,4 @@ format = "default"
         .await?
         .start()
         .await
-}
-
-// Note: This example uses chrono for timestamps
-// In a real project, add chrono to dependencies or use std::time
-mod chrono {
-    pub struct Utc;
-    impl Utc {
-        pub fn now() -> DateTime {
-            DateTime
-        }
-    }
-    pub struct DateTime;
-    impl DateTime {
-        pub fn to_rfc3339(&self) -> String {
-            use std::time::{SystemTime, UNIX_EPOCH};
-            let duration = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-            format!("{}", duration.as_secs())
-        }
-    }
 }

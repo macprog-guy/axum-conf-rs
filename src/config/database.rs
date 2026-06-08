@@ -45,6 +45,8 @@ impl DatabaseConfig {
     fn default_max_pool_size() -> u8 {
         2
     }
+    /// Validates the database configuration (non-empty URL, sane pool sizes),
+    /// returning an error with actionable guidance on the first problem found.
     pub fn validate(&self) -> Result<()> {
         // Check if URL is empty or only whitespace
         if self.url.trim().is_empty() {

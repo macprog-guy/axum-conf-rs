@@ -126,7 +126,11 @@ impl RequestTracker {
     }
 }
 
-/// Layer that applies the deduplication middleware
+/// Layer that applies the deduplication middleware.
+///
+/// Low-level Tower type wired internally by `setup_middleware`; hidden from the
+/// rendered public API. Configure deduplication via `[http.deduplication]` in TOML.
+#[doc(hidden)]
 #[derive(Clone)]
 pub struct DeduplicationLayer {
     tracker: RequestTracker,
@@ -166,7 +170,11 @@ impl<S> Layer<S> for DeduplicationLayer {
     }
 }
 
-/// Service that handles request deduplication
+/// Service that handles request deduplication.
+///
+/// Low-level Tower type produced by [`DeduplicationLayer`]; hidden from the
+/// rendered public API.
+#[doc(hidden)]
 #[derive(Clone)]
 pub struct DeduplicationService<S> {
     inner: S,

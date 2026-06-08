@@ -105,9 +105,13 @@ pub struct StaticDirConfig {
 pub const MAX_CACHE_AGE_SECONDS: u64 = 31_536_000;
 
 impl StaticDirConfig {
+    /// Returns true if this directory is configured as the router fallback
+    /// (served when no other route matches) rather than mounted at a route.
     pub fn is_fallback(&self) -> bool {
         matches!(self.route, StaticDirRoute::Fallback(_))
     }
+    /// Validates the static directory configuration (non-empty path, route
+    /// constraints), returning an error on the first problem found.
     pub fn validate(&self) -> Result<()> {
         // Validate directory path is not empty
         if self.directory.trim().is_empty() {

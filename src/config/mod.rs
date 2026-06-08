@@ -139,13 +139,17 @@ pub struct Config<T = ()>
 where
     T: Clone + Default,
 {
+    /// HTTP server configuration (binding, middleware, routes, auth).
     #[serde(default)]
     pub http: HttpConfig,
+    /// PostgreSQL connection pool configuration (`postgres` feature).
     #[cfg(feature = "postgres")]
     #[serde(default)]
     pub database: DatabaseConfig,
+    /// Logging and tracing configuration.
     #[serde(default)]
     pub logging: LoggingConfig,
+    /// Per-target circuit breaker configuration (`circuit-breaker` feature).
     #[cfg(feature = "circuit-breaker")]
     #[serde(default)]
     pub circuit_breaker: CircuitBreakerConfig,

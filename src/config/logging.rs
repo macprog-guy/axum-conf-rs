@@ -21,6 +21,8 @@ pub struct LoggingConfig {
 }
 
 impl LoggingConfig {
+    /// Validates the logging configuration. Currently always succeeds; present
+    /// for symmetry with the other config sections and future validation.
     pub fn validate(&self) -> Result<()> {
         Ok(())
     }

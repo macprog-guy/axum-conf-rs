@@ -231,6 +231,7 @@ pub struct HttpConfig {
     )]
     pub shutdown_timeout: Duration,
 
+    /// Middleware include/exclude configuration (flattened from `[http.middleware]`).
     #[serde(flatten)]
     pub middleware: Option<HttpMiddlewareConfig>,
 }
@@ -318,6 +319,9 @@ impl HttpConfig {
         true
     }
 
+    /// Validates the HTTP configuration (bind address, limits, auth mutual
+    /// exclusion, static directories, middleware dependencies), returning an
+    /// error with actionable guidance on the first problem found.
     pub fn validate(&self) -> Result<()> {
         // Validate bind address
         if self.bind_addr.trim().is_empty() {
@@ -477,12 +481,15 @@ impl Default for HttpConfig {
 pub struct HttpXFrameConfig(pub XFrameOptions);
 
 impl HttpXFrameConfig {
+    /// `X-Frame-Options: DENY` — disallow framing entirely.
     pub fn deny() -> Self {
         HttpXFrameConfig(XFrameOptions::Deny)
     }
+    /// `X-Frame-Options: SAMEORIGIN` — allow framing only from the same origin.
     pub fn same_origin() -> Self {
         HttpXFrameConfig(XFrameOptions::SameOrigin)
     }
+    /// `X-Frame-Options: ALLOW-FROM <url>` — allow framing from the given origin.
     pub fn allow_from(url: impl Into<String>) -> Self {
         HttpXFrameConfig(XFrameOptions::AllowFrom(url.into()))
     }

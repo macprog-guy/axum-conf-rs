@@ -188,19 +188,13 @@ impl MakeRequestId for RequestIdGenerator {
 ///
 /// # Examples
 ///
-/// ```
-/// use axum_conf::replace_handlebars_with_env;
+/// ```ignore
+/// // Internal helper (crate-private). Given `HOME=/home/user`:
+/// let result = replace_handlebars_with_env("Path: {{ HOME }}/config");
+/// assert_eq!(result, "Path: /home/user/config");
 ///
-/// // Assume HOME environment variable exists (standard on Unix systems)
-/// let template = "Path: {{ HOME }}/config";
-/// let result = replace_handlebars_with_env(template);
-/// // Result will be something like "Path: /home/user/config"
-/// assert!(result.starts_with("Path: "));
-///
-/// // Missing variables become empty strings
-/// let template = "Value: {{ MISSING_VAR }}";
-/// let result = replace_handlebars_with_env(template);
-/// assert_eq!(result, "Value: ");
+/// // Missing variables become empty strings:
+/// assert_eq!(replace_handlebars_with_env("Value: {{ MISSING_VAR }}"), "Value: ");
 /// ```
 ///
 /// # Use Cases
@@ -225,7 +219,7 @@ impl MakeRequestId for RequestIdGenerator {
 /// - Substituted values appear in the returned string in plain text
 /// - Consider using [`Sensitive`] wrapper for secrets after substitution
 /// - Be cautious when logging or displaying the result
-pub fn replace_handlebars_with_env(input: &str) -> String {
+pub(crate) fn replace_handlebars_with_env(input: &str) -> String {
     HANDLEBAR_REGEXP
         .replace_all(input, |caps: &Captures| {
             let var_name = &caps[1];

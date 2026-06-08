@@ -74,13 +74,18 @@ use serde::Deserialize;
 #[allow(unused)]
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct HttpOidcConfig {
+    /// Base issuer URL of the OIDC provider (e.g. `https://keycloak.example.com`).
     #[serde(default)]
     pub issuer_url: String,
+    /// Realm name appended to the issuer URL. Defaults to `"my-app"`.
     #[serde(default = "HttpOidcConfig::default_realm")]
     pub realm: String,
+    /// Expected `aud` claim values. When empty, audience validation is disabled.
     #[serde(default)]
     pub audiences: Vec<String>,
+    /// OAuth2 client identifier registered with the provider.
     pub client_id: String,
+    /// OAuth2 client secret (redacted from logs via [`Sensitive`]).
     pub client_secret: Sensitive<String>,
 
     /// Redirect URI for the OIDC callback. When set, enables the auth code flow routes.
@@ -127,31 +132,31 @@ pub struct HttpOidcConfig {
 
 #[allow(unused)]
 impl HttpOidcConfig {
-    pub fn default_realm() -> String {
+    pub(crate) fn default_realm() -> String {
         "my-app".into()
     }
 
-    pub fn default_scopes() -> Vec<String> {
+    pub(crate) fn default_scopes() -> Vec<String> {
         vec!["openid".into()]
     }
 
-    pub fn default_redirect() -> String {
+    pub(crate) fn default_redirect() -> String {
         "/".into()
     }
 
-    pub fn default_login_route() -> String {
+    pub(crate) fn default_login_route() -> String {
         "/auth/login".into()
     }
 
-    pub fn default_callback_route() -> String {
+    pub(crate) fn default_callback_route() -> String {
         "/auth/callback".into()
     }
 
-    pub fn default_logout_route() -> String {
+    pub(crate) fn default_logout_route() -> String {
         "/auth/logout".into()
     }
 
-    pub fn default_roles_claim() -> String {
+    pub(crate) fn default_roles_claim() -> String {
         "applicationRoles".into()
     }
 
@@ -160,6 +165,8 @@ impl HttpOidcConfig {
         self.redirect_uri.is_some()
     }
 
+    /// Validates the OIDC configuration, returning an error with actionable
+    /// guidance when a required field is missing or inconsistent.
     pub fn validate(&self) -> Result<()> {
         if self.issuer_url.trim().is_empty() {
             return Err(Error::invalid_input(

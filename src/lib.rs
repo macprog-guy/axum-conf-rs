@@ -6,11 +6,11 @@
 //! Get health probes, metrics, security headers, rate limiting, and more — all
 //! configured through simple TOML.
 //!
-//! **📖 For detailed guides, see the [documentation](../docs/):**
-//! - [Getting Started](../docs/getting-started.md) - Build your first service
-//! - [Architecture](../docs/architecture.md) - How axum-conf works
-//! - [Configuration Reference](../docs/configuration/toml-reference.md) - All options
-//! - [Troubleshooting](../docs/troubleshooting.md) - Common issues
+//! **📖 For detailed guides, see the [documentation](https://github.com/macprog-guy/axum-conf-rs/tree/main/docs):**
+//! - [Getting Started](https://github.com/macprog-guy/axum-conf-rs/blob/main/docs/getting-started.md) - Build your first service
+//! - [Architecture](https://github.com/macprog-guy/axum-conf-rs/blob/main/docs/architecture.md) - How axum-conf works
+//! - [Configuration Reference](https://github.com/macprog-guy/axum-conf-rs/blob/main/docs/configuration/toml-reference.md) - All options
+//! - [Troubleshooting](https://github.com/macprog-guy/axum-conf-rs/blob/main/docs/troubleshooting.md) - Common issues
 //!
 //! # Quick Start
 //!
@@ -128,7 +128,7 @@
 //!     .with_request_timeout(Duration::from_secs(30));
 //! ```
 //!
-//! See [Configuration Reference](../docs/configuration/toml-reference.md) for all options.
+//! See [Configuration Reference](https://github.com/macprog-guy/axum-conf-rs/blob/main/docs/configuration/toml-reference.md) for all options.
 //!
 //! # Error Handling
 //!
@@ -242,7 +242,7 @@
 //! }
 //! ```
 //!
-//! See [PostgreSQL Guide](../docs/features/postgres.md) for details.
+//! See [PostgreSQL Guide](https://github.com/macprog-guy/axum-conf-rs/blob/main/docs/features/postgres.md) for details.
 //!
 //! ## Middleware Control
 //!
@@ -253,7 +253,8 @@
 //! exclude = ["rate-limiting", "compression"]
 //! ```
 //!
-//! See [Middleware Overview](../docs/middleware/overview.md) for the full stack.
+//! See [Middleware Overview](https://github.com/macprog-guy/axum-conf-rs/blob/main/docs/middleware/overview.md) for the full stack.
+#![warn(missing_docs)]
 pub mod config;
 mod error;
 pub mod fluent;
@@ -270,4 +271,6 @@ pub use error::*;
 pub use fluent::*;
 pub use utils::*;
 
+/// Convenience alias for results returned by this crate, fixing the error type
+/// to [`Error`]. Use it as `axum_conf::Result<T>`.
 pub type Result<T> = std::result::Result<T, Error>;

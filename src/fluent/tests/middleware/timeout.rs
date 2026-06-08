@@ -70,8 +70,9 @@ async fn test_setup_timeout_with_fast_handler() {
 }
 
 #[tokio::test]
-async fn test_setup_timeout_disabled_by_default() {
-    let config = Config::new(); // No request_timeout configured
+async fn test_setup_timeout_disabled_when_unset() {
+    let mut config = Config::new();
+    config.http.request_timeout = None; // Explicitly disable (default is 60s)
 
     let fluent_router = FluentRouter::without_state(config)
         .unwrap()

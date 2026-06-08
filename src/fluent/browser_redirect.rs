@@ -41,7 +41,7 @@ pub(crate) async fn browser_redirect_middleware(
     next: Next,
 ) -> Response {
     // 1. Already authenticated → pass through
-    if request.extensions().get::<AuthenticatedIdentity>().is_some() {
+    if AuthenticatedIdentity::present_in(request.extensions()) {
         return next.run(request).await;
     }
 
@@ -226,17 +226,15 @@ mod tests {
             }))
             .layer(axum::middleware::from_fn(
                 |mut request: Request, next: Next| async move {
-                    request
-                        .extensions_mut()
-                        .insert(AuthenticatedIdentity {
-                            method: crate::AuthMethod::Oidc,
-                            user: "test-user".to_string(),
-                            email: None,
-                            groups: vec![],
-                            roles: vec![],
-                            preferred_username: None,
-                            access_token: None,
-                        });
+                    request.extensions_mut().insert(AuthenticatedIdentity {
+                        method: crate::AuthMethod::Oidc,
+                        user: "test-user".to_string(),
+                        email: None,
+                        groups: vec![],
+                        roles: vec![],
+                        preferred_username: None,
+                        access_token: None,
+                    });
                     next.run(request).await
                 },
             ));

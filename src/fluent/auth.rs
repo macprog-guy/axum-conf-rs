@@ -54,11 +54,11 @@ where
             let issuer = format!("{issuer_base}/realms/{}", oidc.realm);
             let jwks_url = format!("{issuer}/protocol/openid-connect/certs");
 
-            let jwks = super::oidc_bearer::JwksProvider::new(jwks_url).await?;
+            let jwks =
+                super::oidc_bearer::JwksProvider::new(jwks_url, issuer, oidc.audiences.clone())
+                    .await?;
 
             let bearer_config = Arc::new(super::oidc_bearer::BearerAuthConfig {
-                audiences: oidc.audiences.clone(),
-                issuer,
                 passthrough: oidc.auth_code_flow_enabled(),
                 roles_claim: oidc.roles_claim.clone(),
             });
@@ -80,15 +80,15 @@ where
             // will overwrite the session identity, so Bearer takes precedence.
             if oidc.auth_code_flow_enabled() {
                 let roles_claim = Arc::new(oidc.roles_claim.clone());
-                self.inner = self.inner.layer(axum::middleware::from_fn(
-                    move |request, next| {
+                self.inner = self
+                    .inner
+                    .layer(axum::middleware::from_fn(move |request, next| {
                         super::oidc_flow::session_to_identity(
                             Arc::clone(&roles_claim),
                             request,
                             next,
                         )
-                    },
-                ));
+                    }));
             }
         }
         Ok(self)

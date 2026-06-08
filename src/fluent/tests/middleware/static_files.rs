@@ -252,6 +252,43 @@ fallback = true
 }
 
 #[tokio::test]
+async fn test_fallback_dir_with_merge_does_not_double_register() {
+    // Regression guard: a fallback directory must be wired exactly once, by
+    // `setup_middleware`. `with_state` previously also wired it, which both did
+    // redundant work and made `with_state(...).merge(router_with_fallback)`
+    // fragile. Building the full chain with a fallback dir configured must
+    // succeed and serve the fallback.
+    let toml_dirs = r#"
+[[http.directories]]
+directory = "tests/test_fallback_files"
+fallback = true
+    "#;
+
+    let config = create_config_with_toml(toml_dirs);
+    let app = create_test_router_with_static_files(config).await;
+
+    // Application route still works (merged before setup_middleware).
+    let response = app
+        .clone()
+        .oneshot(Request::builder().uri("/test").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+
+    // Unmatched route falls through to the single configured fallback, which
+    // serves index.html from the fallback directory.
+    let response = app
+        .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert!(String::from_utf8_lossy(&body).contains("Fallback Static File"));
+}
+
+#[tokio::test]
 async fn test_static_directory_404_for_non_existent_file() {
     let toml_dirs = r#"
 [[http.directories]]

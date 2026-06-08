@@ -10,47 +10,44 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -Dwarnings
 
+# Action versions are tag-pinned and kept current by Dependabot
+# (.github/dependabot.yml). Enable SHA-pinning there if stricter supply-chain
+# hardening is required.
+
 jobs:
-
-
   msrv:
-    name: Check MSRV
+    name: Check MSRV (1.92)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust 1.92
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: "1.92"
-          profile: minimal
-          override: true
-
-      - name: Cache cargo registry
-        uses: Swatinem/rust-cache@v2
-
+      - uses: dtolnay/rust-toolchain@1.92
+      - uses: Swatinem/rust-cache@v2
       - name: Check compilation
         run: cargo check --all-features
 
   test:
     needs: msrv
-    name: Test (all features)
-    runs-on: ubuntu-latest
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux has Docker, so it runs the full suite including the
+          # testcontainers-backed integration tests.
+          - os: ubuntu-latest
+            test-args: "--all-features"
+          # macOS GitHub runners cannot run Linux containers, so restrict to
+          # unit/lib tests — enough to catch platform-specific behaviour
+          # (e.g. rustls-native-certs, path handling).
+          - os: macos-latest
+            test-args: "--all-features --lib"
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-
-      - name: Cache cargo registry
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run tests (all features)
-        run: cargo test --all-features
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests
+        run: cargo test ${{ matrix.test-args }}
         env:
           RUST_ENV: test
 
@@ -60,17 +57,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-
-      - name: Cache cargo registry
-        uses: Swatinem/rust-cache@v2
-
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       # Default features = postgres OFF. Exercises the no-database code paths,
       # including the readiness-hook happy-path tests (200 OK) that are gated
       # out of the all-features run because /ready needs a live database there.
@@ -79,40 +67,69 @@ jobs:
         env:
           RUST_ENV: test
 
+  features:
+    needs: msrv
+    name: Feature combinations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hack
+      # Checks the crate with each feature individually (plus none/all), catching
+      # feature-gating bugs that the all-features and default builds miss.
+      - name: Check each feature
+        run: cargo hack check --each-feature --no-dev-deps
+
   lint:
     needs: msrv
     name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          profile: minimal
-          override: true
           components: clippy, rustfmt
-
-      - name: Cache cargo registry
-        uses: Swatinem/rust-cache@v2
-
+      - uses: Swatinem/rust-cache@v2
       - name: Check formatting
         run: cargo fmt --all -- --check
-
       - name: Run Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-  audit:
+  deny:
     needs: msrv
-    name: Security Audit
+    name: cargo-deny (advisories, licenses, bans, sources)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions-rust-lang/audit@v1
-        name: Audit Rust dependencies
+      - uses: EmbarkStudios/cargo-deny-action@v2
         with:
-          ignore: RUSTSEC-2023-0071,RUSTSEC-2024-0436,RUSTSEC-2025-0134
+          command: check
+
+  coverage:
+    needs: msrv
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - name: Generate coverage (lib, all features)
+        run: cargo llvm-cov --all-features --lib --lcov --output-path lcov.info
+        env:
+          RUST_ENV: test
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: lcov
+          path: lcov.info
 
   docs:
     needs: msrv
@@ -120,17 +137,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-
-      - name: Cache cargo registry
-        uses: Swatinem/rust-cache@v2
-
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Build documentation
         run: cargo doc --all-features --no-deps
         env:

@@ -12,6 +12,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Pluggable application readiness hook: `FluentRouter::with_readiness_check` registers an app-supplied closure so `/ready` reflects application state (e.g. load shedding when a bounded worker pool is saturated), not just database connectivity. The hook is *composed* with the built-in checks — the endpoint is ready iff the application check returns `Readiness::Ready` **and** the built-in database/circuit-breaker check passes. A `NotReady(msg)` result returns `503 Service Unavailable` with `msg` in the body. New public `Readiness` type; available regardless of the `postgres` feature. See the `readiness_check` example.
 
+### Security
+- HTTP error responses no longer leak internal detail: errors of internal kinds (database, configuration, TLS, I/O, internal) now return a generic `"An internal error occurred"` body while the full detail is still logged server-side. Client-facing kinds (authentication, invalid input, circuit-breaker) are unchanged.
+- Session cookies are now `Secure` and `SameSite=Strict` by default. New `[http]` options `session_secure_cookie` (default `true`) and `session_same_site` (default `strict`) make this configurable; a warning is logged if `session_secure_cookie = false` while not bound to loopback.
+
+### Changed
+- **Breaking (defaults):** `bind_addr` now defaults to `"0.0.0.0"` (was `"127.0.0.1"`) so services are reachable by Kubernetes probes and other pods; a warning is logged when bound to loopback. `request_timeout` now defaults to `60s` (was unset) to bound hung handlers — set it empty in TOML to disable.
+- Circuit breaker state machine rewritten around a single lock, fixing a race under concurrent load where the failure threshold and half-open call limit could be exceeded, and recovering from lock poisoning instead of cascading panics.
+
+### Fixed
+- OpenTelemetry traces are now exported correctly: the OTel layer is composed with the active tracing subscriber instead of a separate, disconnected registry, and buffered spans are flushed on graceful shutdown. When OpenTelemetry is enabled, `setup_opentelemetry()` initializes logging — do not also call `Config::setup_tracing()`.
+- Static fallback directories are wired once (by `setup_middleware`) instead of also during `with_state`, removing redundant work and a `merge`-ordering footgun.
+- Eliminated permanent per-call memory leaks (`Box::leak`) in the metrics and OpenAPI route setup.
+
+### Performance
+- Bearer JWT validation no longer rebuilds the decoding key and validation parameters per request; they are cached per-`kid` when the JWKS is loaded/refreshed.
+- The authenticated identity is stored as `Arc<AuthenticatedIdentity>` in request extensions, avoiding repeated deep clones across role checks and span recording.
+- Request deduplication evicts the oldest entry in O(1) amortized time via an insertion-order index, replacing an O(n) scan over the tracker at capacity.
+
 ## [0.4.1] - 2026-03-25
 
 ### Security

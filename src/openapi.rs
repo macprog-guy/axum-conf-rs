@@ -112,15 +112,17 @@ where
     }
 
     fn with_openapi_config<A: utoipa::OpenApi>(self, config: ScalarConfig) -> Self {
+        // Generate the spec once and reuse it for both the JSON route and Scalar.
         let spec = A::openapi();
         let spec_json = spec.to_json().expect("Failed to serialize OpenAPI spec");
 
-        // Leak the path string to get a static lifetime for Scalar
-        let docs_path: &'static str = Box::leak(config.path.into_boxed_str());
-        let spec_path: &'static str = Box::leak(config.spec_path.into_boxed_str());
-
-        self.route(spec_path, get(move || async move { spec_json.clone() }))
-            .merge(Scalar::with_url(docs_path, A::openapi()))
+        // No `Box::leak`: `Router::route` takes `&str`, and `Scalar::with_url`
+        // accepts an owned `String`, so the paths live in the router/handler.
+        self.route(
+            &config.spec_path,
+            get(move || async move { spec_json.clone() }),
+        )
+        .merge(Scalar::with_url(config.path, spec))
     }
 }
 

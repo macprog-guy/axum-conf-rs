@@ -265,6 +265,11 @@ where
         tracing::info!("Waiting for connections");
         tracing::info!("Max req/s: {}", self.config.http.max_requests_per_sec);
 
+        // Move the tracer provider out of `self` before `self.state`/`self.inner`
+        // are consumed, so we can flush exported spans after shutdown completes.
+        #[cfg(feature = "opentelemetry")]
+        let otel_provider = self.otel_provider;
+
         let service = self
             .inner
             .with_state(self.state)
@@ -306,6 +311,15 @@ where
                 tracing::warn!("Graceful shutdown timeout expired, forcing shutdown");
                 shutdown_notifier.emit(ShutdownPhase::GracePeriodEnded);
             }
+        }
+
+        // Flush any buffered OpenTelemetry spans before exiting. The batch
+        // exporter would otherwise drop un-flushed spans at process exit.
+        #[cfg(feature = "opentelemetry")]
+        if let Some(provider) = otel_provider
+            && let Err(e) = provider.shutdown()
+        {
+            tracing::warn!(error = %e, "Failed to flush OpenTelemetry tracer provider on shutdown");
         }
 
         Ok(())

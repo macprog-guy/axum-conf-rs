@@ -32,10 +32,14 @@ lint:
 	cargo clippy --all-targets --all-features -- -D warnings
 
 audit:
-	cargo audit
+	cargo deny check
 
 coverage:
 	cargo llvm-cov --html --no-cfg-coverage --open --all-features -- tests
+
+# Headless coverage for CI: emits lcov.info without opening a browser.
+coverage-ci:
+	cargo llvm-cov --all-features --lib --lcov --output-path lcov.info
 
 readme:
 	cargo readme > README.md

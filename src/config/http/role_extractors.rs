@@ -32,7 +32,7 @@
 
 use crate::config::http::identity::AuthenticatedIdentity;
 use axum::extract::FromRequestParts;
-use http::{request::Parts, StatusCode};
+use http::{StatusCode, request::Parts};
 use std::marker::PhantomData;
 use std::ops::Deref;
 
@@ -114,10 +114,8 @@ impl<S: Send + Sync, R: ApplicationRole> FromRequestParts<S> for WithRole<R> {
         parts: &mut Parts,
         _state: &S,
     ) -> std::result::Result<Self, Self::Rejection> {
-        let identity = parts
-            .extensions
-            .get::<AuthenticatedIdentity>()
-            .cloned()
+        let identity = AuthenticatedIdentity::arc_from_extensions(&parts.extensions)
+            .map(|arc| (*arc).clone())
             .ok_or((StatusCode::UNAUTHORIZED, "Authentication required"))?;
 
         if identity.roles.iter().any(|r| r == R::ROLE) {
@@ -160,10 +158,8 @@ impl<S: Send + Sync, R: ApplicationRoles> FromRequestParts<S> for AnyRole<R> {
         parts: &mut Parts,
         _state: &S,
     ) -> std::result::Result<Self, Self::Rejection> {
-        let identity = parts
-            .extensions
-            .get::<AuthenticatedIdentity>()
-            .cloned()
+        let identity = AuthenticatedIdentity::arc_from_extensions(&parts.extensions)
+            .map(|arc| (*arc).clone())
             .ok_or((StatusCode::UNAUTHORIZED, "Authentication required"))?;
 
         if R::ROLES
@@ -209,10 +205,8 @@ impl<S: Send + Sync, R: ApplicationRoles> FromRequestParts<S> for AllRoles<R> {
         parts: &mut Parts,
         _state: &S,
     ) -> std::result::Result<Self, Self::Rejection> {
-        let identity = parts
-            .extensions
-            .get::<AuthenticatedIdentity>()
-            .cloned()
+        let identity = AuthenticatedIdentity::arc_from_extensions(&parts.extensions)
+            .map(|arc| (*arc).clone())
             .ok_or((StatusCode::UNAUTHORIZED, "Authentication required"))?;
 
         if R::ROLES
@@ -287,7 +281,7 @@ macro_rules! roles {
 mod tests {
     use super::*;
     use crate::config::http::identity::AuthMethod;
-    use axum::{routing::get, Router};
+    use axum::{Router, routing::get};
     use http::Request;
     use tower::ServiceExt;
 
@@ -322,7 +316,9 @@ mod tests {
     #[tokio::test]
     async fn test_with_role_success() {
         let app = Router::new().route("/test", get(with_role_handler));
-        let mut request = Request::get("/test").body(axum::body::Body::empty()).unwrap();
+        let mut request = Request::get("/test")
+            .body(axum::body::Body::empty())
+            .unwrap();
         request
             .extensions_mut()
             .insert(test_identity(vec!["admin".into(), "viewer".into()]));
@@ -334,7 +330,9 @@ mod tests {
     #[tokio::test]
     async fn test_with_role_forbidden() {
         let app = Router::new().route("/test", get(with_role_handler));
-        let mut request = Request::get("/test").body(axum::body::Body::empty()).unwrap();
+        let mut request = Request::get("/test")
+            .body(axum::body::Body::empty())
+            .unwrap();
         request
             .extensions_mut()
             .insert(test_identity(vec!["viewer".into()]));
@@ -346,7 +344,9 @@ mod tests {
     #[tokio::test]
     async fn test_with_role_unauthorized() {
         let app = Router::new().route("/test", get(with_role_handler));
-        let request = Request::get("/test").body(axum::body::Body::empty()).unwrap();
+        let request = Request::get("/test")
+            .body(axum::body::Body::empty())
+            .unwrap();
 
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
@@ -355,7 +355,9 @@ mod tests {
     #[tokio::test]
     async fn test_any_role_success() {
         let app = Router::new().route("/test", get(any_role_handler));
-        let mut request = Request::get("/test").body(axum::body::Body::empty()).unwrap();
+        let mut request = Request::get("/test")
+            .body(axum::body::Body::empty())
+            .unwrap();
         request
             .extensions_mut()
             .insert(test_identity(vec!["viewer".into()]));
@@ -367,7 +369,9 @@ mod tests {
     #[tokio::test]
     async fn test_any_role_forbidden() {
         let app = Router::new().route("/test", get(any_role_handler));
-        let mut request = Request::get("/test").body(axum::body::Body::empty()).unwrap();
+        let mut request = Request::get("/test")
+            .body(axum::body::Body::empty())
+            .unwrap();
         request
             .extensions_mut()
             .insert(test_identity(vec!["admin".into()]));
@@ -379,10 +383,14 @@ mod tests {
     #[tokio::test]
     async fn test_all_roles_success() {
         let app = Router::new().route("/test", get(all_roles_handler));
-        let mut request = Request::get("/test").body(axum::body::Body::empty()).unwrap();
-        request
-            .extensions_mut()
-            .insert(test_identity(vec!["admin".into(), "editor".into(), "viewer".into()]));
+        let mut request = Request::get("/test")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        request.extensions_mut().insert(test_identity(vec![
+            "admin".into(),
+            "editor".into(),
+            "viewer".into(),
+        ]));
 
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
@@ -391,7 +399,9 @@ mod tests {
     #[tokio::test]
     async fn test_all_roles_forbidden_missing_one() {
         let app = Router::new().route("/test", get(all_roles_handler));
-        let mut request = Request::get("/test").body(axum::body::Body::empty()).unwrap();
+        let mut request = Request::get("/test")
+            .body(axum::body::Body::empty())
+            .unwrap();
         request
             .extensions_mut()
             .insert(test_identity(vec!["admin".into()]));
@@ -403,10 +413,10 @@ mod tests {
     #[tokio::test]
     async fn test_all_roles_forbidden_empty_roles() {
         let app = Router::new().route("/test", get(all_roles_handler));
-        let mut request = Request::get("/test").body(axum::body::Body::empty()).unwrap();
-        request
-            .extensions_mut()
-            .insert(test_identity(vec![]));
+        let mut request = Request::get("/test")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        request.extensions_mut().insert(test_identity(vec![]));
 
         let response = app.oneshot(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::FORBIDDEN);

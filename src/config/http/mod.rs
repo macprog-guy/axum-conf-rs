@@ -6,9 +6,9 @@ mod cors;
 mod dedup;
 mod identity;
 mod middleware;
-mod role_extractors;
 mod oidc;
 mod proxy_oidc;
+mod role_extractors;
 mod staticdir;
 
 #[cfg(feature = "basic-auth")]
@@ -19,10 +19,10 @@ pub use cors::*;
 pub use dedup::*;
 pub use identity::*;
 pub use middleware::*;
-pub use role_extractors::*;
 #[cfg(feature = "keycloak")]
 pub use oidc::*;
 pub use proxy_oidc::*;
+pub use role_extractors::*;
 pub use staticdir::*;
 
 use {crate::Result, serde::Deserialize, std::fmt, std::time::Duration};
@@ -54,6 +54,29 @@ impl fmt::Display for XFrameOptions {
     }
 }
 
+/// `SameSite` attribute for the session cookie.
+///
+/// Controls when the browser attaches the session cookie to cross-site requests.
+/// Defaults to `Strict`, the most CSRF-resistant option.
+///
+/// In TOML configuration:
+/// ```toml
+/// [http]
+/// session_same_site = "strict"  # or "lax" / "none"
+/// ```
+#[cfg(feature = "session")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SameSiteConfig {
+    /// Cookie sent only for same-site requests (most CSRF-resistant).
+    #[default]
+    Strict,
+    /// Cookie sent for same-site requests and top-level cross-site navigations.
+    Lax,
+    /// Cookie sent for all requests, including cross-site (requires `Secure`).
+    None,
+}
+
 ///
 /// Configuration for the HTTP server
 ///
@@ -63,8 +86,10 @@ impl fmt::Display for XFrameOptions {
 ///
 #[derive(Debug, Clone, Deserialize)]
 pub struct HttpConfig {
-    /// IP address to bind the HTTP server to
-    /// The default `bind_addr` is "127.0.0.1".
+    /// IP address to bind the HTTP server to.
+    /// The default `bind_addr` is "0.0.0.0" (all interfaces), so the service is
+    /// reachable by Kubernetes health probes and other pods. Use "127.0.0.1" for
+    /// local-only development.
     #[serde(default = "HttpConfig::default_bind_addr")]
     pub bind_addr: String,
 
@@ -90,8 +115,12 @@ pub struct HttpConfig {
     /// If a request takes longer than this it will be aborted with a 408
     /// Request Timeout response. Too many such responses in a short time
     /// interval will make the server unavailable during a readiness check.
-    /// By default `request_timeout` is None.
-    #[serde(default, with = "humantime_serde")]
+    /// By default `request_timeout` is 60 seconds. Set to an empty/unset value
+    /// in TOML to disable, or configure a different duration (e.g. "30s").
+    #[serde(
+        default = "HttpConfig::default_request_timeout",
+        with = "humantime_serde"
+    )]
     pub request_timeout: Option<Duration>,
 
     /// Maximum payload size in bytes for incoming HTTP requests.
@@ -145,6 +174,20 @@ pub struct HttpConfig {
     /// Configuration for serving static files.
     #[serde(default)]
     pub directories: Vec<StaticDirConfig>,
+
+    /// Whether the session cookie carries the `Secure` attribute (HTTPS-only).
+    /// By default `session_secure_cookie` is `true`. Set to `false` only for
+    /// local plain-HTTP development; doing so allows the cookie to be sent over
+    /// unencrypted connections.
+    #[cfg(feature = "session")]
+    #[serde(default = "HttpConfig::default_session_secure_cookie")]
+    pub session_secure_cookie: bool,
+
+    /// `SameSite` attribute for the session cookie.
+    /// By default `session_same_site` is `Strict`.
+    #[cfg(feature = "session")]
+    #[serde(default)]
+    pub session_same_site: SameSiteConfig,
 
     /// OIDC authentication configuration.
     /// Only included if the "keycloak" feature is enabled.
@@ -200,8 +243,25 @@ impl HttpConfig {
         format!("{}:{}", self.bind_addr, self.bind_port)
     }
 
+    /// Returns true if `bind_addr` is a loopback address (e.g. `127.0.0.1`, `::1`).
+    pub fn bind_addr_is_loopback(&self) -> bool {
+        self.bind_addr
+            .parse::<std::net::IpAddr>()
+            .map(|ip| ip.is_loopback())
+            .unwrap_or(false)
+    }
+
     fn default_bind_addr() -> String {
-        "127.0.0.1".into()
+        // Default to all interfaces: a service targeting Kubernetes must be
+        // reachable by the kubelet's health probes and by other pods, which
+        // `127.0.0.1` (loopback) prevents.
+        "0.0.0.0".into()
+    }
+
+    fn default_request_timeout() -> Option<Duration> {
+        // Bound hung handlers by default so a stuck request cannot hold a
+        // connection (and degrade readiness) indefinitely.
+        Some(Duration::from_secs(60))
     }
 
     fn default_bind_port() -> u16 {
@@ -253,6 +313,11 @@ impl HttpConfig {
         Duration::from_secs(30)
     }
 
+    #[cfg(feature = "session")]
+    fn default_session_secure_cookie() -> bool {
+        true
+    }
+
     pub fn validate(&self) -> Result<()> {
         // Validate bind address
         if self.bind_addr.trim().is_empty() {
@@ -266,6 +331,16 @@ impl HttpConfig {
             return Err(crate::Error::invalid_input(
                 "HTTP bind_addr must be a valid IP address. Examples: \"127.0.0.1\", \"0.0.0.0\", \"::1\"",
             ));
+        }
+
+        // Warn when bound to loopback: in a Kubernetes pod this is unreachable by
+        // the kubelet's health probes and by other pods. Fine for local dev.
+        if self.bind_addr_is_loopback() {
+            tracing::warn!(
+                bind_addr = %self.bind_addr,
+                "HTTP server bound to a loopback address; it will be unreachable from \
+                 outside the host (e.g. Kubernetes probes). Use \"0.0.0.0\" for deployments."
+            );
         }
 
         // Validate max_concurrent_requests is not zero
@@ -356,7 +431,7 @@ impl Default for HttpConfig {
             support_compression: false,
             with_metrics: Self::default_with_metrics(),
             trim_trailing_slash: Self::default_trim_trailing_slash(),
-            request_timeout: None,
+            request_timeout: Self::default_request_timeout(),
             liveness_route: Self::default_liveness_route(),
             readiness_route: Self::default_readiness_route(),
             metrics_route: Self::default_metrics_route(),
@@ -364,6 +439,10 @@ impl Default for HttpConfig {
             x_frame_options: Self::default_x_frame_options(),
             default_api_version: Self::default_api_version(),
             directories: Vec::new(),
+            #[cfg(feature = "session")]
+            session_secure_cookie: Self::default_session_secure_cookie(),
+            #[cfg(feature = "session")]
+            session_same_site: SameSiteConfig::default(),
             #[cfg(feature = "keycloak")]
             oidc: None,
             #[cfg(feature = "basic-auth")]

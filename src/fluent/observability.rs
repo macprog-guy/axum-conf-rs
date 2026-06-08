@@ -58,8 +58,13 @@ where
                 "Metrics middleware enabled"
             );
             const PACKAGE_NAME: &str = env!("CARGO_PKG_NAME");
-            let metrics_path: &str =
-                Box::leak(self.config.http.metrics_route.clone().into_boxed_str());
+            // `with_ignore_pattern` borrows the pattern for the layer's 'static
+            // lifetime. Use a process-lifetime `OnceLock` instead of `Box::leak`
+            // so repeated calls (e.g. in tests) allocate the path at most once.
+            static METRICS_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+            let metrics_path: &'static str = METRICS_PATH
+                .get_or_init(|| self.config.http.metrics_route.clone())
+                .as_str();
             let (prometheus_layer, metrics_handle) = PrometheusMetricLayerBuilder::new()
                 .enable_response_body_size(true)
                 .with_prefix(PACKAGE_NAME)
@@ -155,8 +160,13 @@ where
                                 propagator.extract(&extractor)
                             });
 
-                        // Set the extracted context as the parent of this span
-                        span.set_parent(context).ok();
+                        // Set the extracted context as the parent of this span.
+                        if let Err(e) = span.set_parent(context) {
+                            tracing::debug!(
+                                error = %e,
+                                "Failed to attach extracted OpenTelemetry context to span"
+                            );
+                        }
                     }
 
                     span
@@ -206,7 +216,7 @@ where
     /// # }
     /// ```
     #[cfg(feature = "opentelemetry")]
-    pub fn setup_opentelemetry(self) -> Result<Self> {
+    pub fn setup_opentelemetry(mut self) -> Result<Self> {
         if let Some(otel_config) = &self.config.logging.opentelemetry {
             use tracing_subscriber::prelude::*;
 
@@ -246,12 +256,21 @@ where
             let tracer = provider.tracer(service_name);
             let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);
 
-            // Add the OpenTelemetry layer to the existing tracing subscriber
-            // This allows tracing spans to be exported as OpenTelemetry spans
-            let _ = tracing_subscriber::registry().with(otel_layer).try_init();
+            // Compose the OTel layer with the fmt + env-filter subscriber and
+            // initialize ONCE. Previously this built a separate, disconnected
+            // registry whose `try_init` silently lost to any prior init (so spans
+            // never exported). `setup_tracing_with` owns the single global
+            // subscriber, so callers must NOT also call `Config::setup_tracing()`
+            // when OpenTelemetry is enabled — this method initializes logging too.
+            let endpoint = otel_config.endpoint.clone();
+            self.config
+                .setup_tracing_with(|subscriber| subscriber.with(otel_layer));
+
+            // Retain the provider so its batch exporter can be flushed on shutdown.
+            self.otel_provider = Some(provider);
 
             tracing::info!(
-                endpoint = %otel_config.endpoint,
+                endpoint = %endpoint,
                 "OpenTelemetry tracing initialized with context propagation"
             );
         }

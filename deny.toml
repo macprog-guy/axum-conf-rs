@@ -1,0 +1,47 @@
+# cargo-deny configuration — https://embarkstudios.github.io/cargo-deny/
+#
+# Single source of truth for supply-chain policy, consumed by both
+# `cargo deny check` locally (`make audit`) and the CI `cargo-deny` job.
+# This replaces the former repo-root `audit.toml`, which cargo-audit never
+# actually read (it only auto-loads `$CARGO_HOME/audit.toml`).
+
+[advisories]
+version = 2
+# RustSec advisories acknowledged with rationale. Revisit when fixes land.
+ignore = [
+    # Timing side-channel in `rsa`; hard to exploit and the crate offers no fix.
+    "RUSTSEC-2023-0071",
+    # `paste` (via `utoipa-axum`) is unmaintained; no security impact today.
+    "RUSTSEC-2024-0436",
+    # `rustls-pemfile` (via `testcontainers`, dev-only) unmaintained; PEM specs
+    # are stable, so the maintenance risk is acceptable.
+    "RUSTSEC-2025-0134",
+]
+
+[licenses]
+version = 2
+# Permissive licenses compatible with this MIT-licensed library.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "MPL-2.0",
+    "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.9
+
+[bans]
+# Surface accidental duplicate versions and forbid wildcard deps, but don't
+# fail the build on transitive duplication we can't control.
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

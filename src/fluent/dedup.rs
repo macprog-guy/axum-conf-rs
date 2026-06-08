@@ -8,7 +8,11 @@ use axum::{body::Body, extract::Request, response::Response};
 use dashmap::DashMap;
 use http::StatusCode;
 use std::{
-    sync::Arc,
+    collections::VecDeque,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
 use tower::{Layer, Service};
@@ -17,12 +21,23 @@ use tower::{Layer, Service};
 #[derive(Clone)]
 struct RequestEntry {
     expires_at: Instant,
+    /// Monotonic insertion sequence, used to detect stale entries in the
+    /// insertion-order index (an entry re-inserted after expiry gets a new seq).
+    seq: u64,
 }
 
-/// In-memory tracker for request IDs using DashMap for concurrent access
+/// In-memory tracker for request IDs.
+///
+/// `tracker` (a `DashMap`) gives O(1) concurrent duplicate lookups. `order` is
+/// an insertion-ordered index used purely to evict the oldest entry in O(1)
+/// amortized time when at capacity — replacing a previous O(n) scan over the
+/// whole map under shard locks. Because the TTL is constant, insertion order is
+/// also expiry order, so the front of `order` is always the oldest entry.
 #[derive(Clone)]
 pub(crate) struct RequestTracker {
     tracker: Arc<DashMap<String, RequestEntry>>,
+    order: Arc<Mutex<VecDeque<(u64, String)>>>,
+    seq: Arc<AtomicU64>,
     ttl: Duration,
     max_entries: usize,
 }
@@ -31,6 +46,8 @@ impl RequestTracker {
     fn new(ttl: Duration, max_entries: usize) -> Self {
         Self {
             tracker: Arc::new(DashMap::new()),
+            order: Arc::new(Mutex::new(VecDeque::new())),
+            seq: Arc::new(AtomicU64::new(0)),
             ttl,
             max_entries,
         }
@@ -48,42 +65,64 @@ impl RequestTracker {
                 // Entry exists and hasn't expired - this is a duplicate
                 return true;
             }
-            // Entry expired, drop the reference so we can remove it
+            // Entry expired, drop the reference so we can remove it. The stale
+            // `order` record is skipped lazily during eviction.
             drop(entry);
             self.tracker.remove(&key);
         }
 
-        // Not a duplicate - need to mark this request
-        // Check if we need to evict entries to stay under max_entries
+        // Not a duplicate - need to mark this request.
+        // Evict to stay under max_entries when at capacity.
         if self.tracker.len() >= self.max_entries {
-            // First try removing expired entries
+            // First drop all expired entries (cheap retain).
             self.cleanup_expired();
-
-            // If still at capacity, remove oldest entry
-            if self.tracker.len() >= self.max_entries
-                && let Some(oldest_key) = self
-                    .tracker
-                    .iter()
-                    .min_by_key(|entry| entry.expires_at)
-                    .map(|entry| entry.key().clone())
-            {
-                self.tracker.remove(&oldest_key);
+            // If still at capacity, evict the single oldest live entry.
+            if self.tracker.len() >= self.max_entries {
+                self.evict_oldest();
             }
         }
 
-        // Insert the new entry
-        let entry = RequestEntry {
-            expires_at: now + self.ttl,
-        };
-        self.tracker.insert(key, entry);
+        // Insert the new entry and record its insertion order.
+        let seq = self.seq.fetch_add(1, Ordering::Relaxed);
+        self.tracker.insert(
+            key.clone(),
+            RequestEntry {
+                expires_at: now + self.ttl,
+                seq,
+            },
+        );
+        self.order_lock().push_back((seq, key));
 
         // Not a duplicate
         false
     }
 
+    /// Evicts the oldest live entry by walking the insertion-order index from
+    /// the front, discarding stale records (already removed or re-inserted with
+    /// a newer seq) until one live entry is removed.
+    fn evict_oldest(&self) {
+        let mut order = self.order_lock();
+        while let Some((seq, key)) = order.pop_front() {
+            let is_current = self
+                .tracker
+                .get(&key)
+                .map(|e| e.seq == seq)
+                .unwrap_or(false);
+            if is_current {
+                self.tracker.remove(&key);
+                return;
+            }
+            // Otherwise the record is stale; keep popping.
+        }
+    }
+
     fn cleanup_expired(&self) {
         let now = Instant::now();
         self.tracker.retain(|_, v| now < v.expires_at);
+    }
+
+    fn order_lock(&self) -> std::sync::MutexGuard<'_, VecDeque<(u64, String)>> {
+        self.order.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 

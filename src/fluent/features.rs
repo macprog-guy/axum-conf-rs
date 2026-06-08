@@ -27,6 +27,18 @@ use tower_sessions::{
     cookie::{SameSite, time::Duration as CookieDuration},
 };
 
+#[cfg(feature = "session")]
+impl From<crate::config::SameSiteConfig> for SameSite {
+    fn from(value: crate::config::SameSiteConfig) -> Self {
+        use crate::config::SameSiteConfig;
+        match value {
+            SameSiteConfig::Strict => SameSite::Strict,
+            SameSiteConfig::Lax => SameSite::Lax,
+            SameSiteConfig::None => SameSite::None,
+        }
+    }
+}
+
 #[cfg(feature = "api-versioning")]
 use {
     crate::utils::ApiVersion,
@@ -39,16 +51,42 @@ where
     State: Clone + Send + Sync + 'static,
 {
     /// Sets up cookie-based session handling using an in-memory store.
+    ///
+    /// The `Secure` and `SameSite` cookie attributes are taken from
+    /// `config.http.session_secure_cookie` (default `true`) and
+    /// `config.http.session_same_site` (default `Strict`).
+    ///
+    /// # Security note
+    ///
+    /// Sessions store the OIDC PKCE verifier, CSRF state, nonce, and tokens. The
+    /// in-memory store keeps these in-process, so they cannot be tampered with
+    /// without code execution. Identity is rebuilt from the stored ID token's
+    /// claims on each request *without* re-verifying its signature (it was
+    /// verified at callback time). If you replace the in-memory store with a
+    /// shared/external backend, ensure that backend's integrity, since claims are
+    /// trusted as stored.
     #[cfg(feature = "session")]
     #[must_use]
     pub fn setup_session_handling(mut self) -> Self {
+        let secure = self.config.http.session_secure_cookie;
+        let same_site: SameSite = self.config.http.session_same_site.into();
+
+        if !secure && !self.config.http.bind_addr_is_loopback() {
+            tracing::warn!(
+                bind_addr = %self.config.http.bind_addr,
+                "session_secure_cookie = false while not bound to loopback: session \
+                 cookies may be sent over unencrypted connections. Set \
+                 session_secure_cookie = true for any non-local deployment."
+            );
+        }
+
         let session_store = MemoryStore::default();
         let session_layer = SessionManagerLayer::new(session_store)
-            .with_secure(false)
-            .with_same_site(SameSite::Lax)
+            .with_secure(secure)
+            .with_same_site(same_site)
             .with_expiry(Expiry::OnInactivity(CookieDuration::seconds(3600)));
         self.inner = self.inner.layer(session_layer);
-        tracing::trace!("Session middleware enabled");
+        tracing::trace!(secure, ?same_site, "Session middleware enabled");
         self
     }
 

@@ -79,6 +79,9 @@ pub struct FluentRouter<State = ()> {
     pub(crate) db_pool: sqlx_postgres::PgPool,
     #[cfg(feature = "circuit-breaker")]
     pub(crate) circuit_breaker_registry: crate::circuit_breaker::CircuitBreakerRegistry,
+    /// Retained OpenTelemetry tracer provider, flushed during graceful shutdown.
+    #[cfg(feature = "opentelemetry")]
+    pub(crate) otel_provider: Option<opentelemetry_sdk::trace::SdkTracerProvider>,
 }
 
 impl FluentRouter {
@@ -132,8 +135,9 @@ where
 {
     /// Creates a new `FluentRouter` with the provided configuration.
     ///
-    /// Validates the configuration and sets up any fallback static file directories.
-    /// Other static directories must be set up explicitly using `setup_directories()`.
+    /// Validates the configuration. Static file directories — including any
+    /// fallback directory — are wired by [`Self::setup_middleware`]; call it (or
+    /// `setup_fallback_files`/`setup_directories` explicitly) after construction.
     /// If a configuration for a database pool is provided, the pool will be created
     /// and made available for health checks. It can also be accessed via a call to
     /// `db_pool()`.
@@ -199,9 +203,15 @@ where
             db_pool,
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker_registry,
+            #[cfg(feature = "opentelemetry")]
+            otel_provider: None,
         };
 
-        me.setup_fallback_files()
+        // Note: fallback static files are wired by `setup_middleware`, which must
+        // be the sole caller of `setup_fallback_files` (it documents "must be
+        // last"). Calling it here too would set `Router::fallback_service` twice
+        // and panic when a fallback directory is configured.
+        Ok(me)
     }
 
     /// Returns a reference to the shutdown notifier.

@@ -3,6 +3,7 @@
 //! This module provides middleware that runs after authentication to record
 //! the authenticated username to the current tracing span's `user` field.
 
+use crate::AuthenticatedIdentity;
 use axum::{body::Body, extract::Request, middleware::Next, response::Response};
 
 /// Records the authenticated username to the current tracing span.
@@ -14,33 +15,31 @@ use axum::{body::Body, extract::Request, middleware::Next, response::Response};
 ///
 /// If no authenticated user is found, the span's `user` field remains empty.
 pub(crate) async fn record_user_to_span(request: Request<Body>, next: Next) -> Response {
-    let username = get_username_from_request(&request);
-
-    if let Some(user) = username {
-        tracing::Span::current().record("user", user.as_str());
+    // Borrow the identity to record the username without cloning it.
+    if let Some(identity) = AuthenticatedIdentity::from_extensions_ref(request.extensions()) {
+        let user = identity
+            .preferred_username
+            .as_deref()
+            .unwrap_or(identity.user.as_str());
+        tracing::Span::current().record("user", user);
     }
 
     next.run(request).await
 }
 
-/// Extracts the username from request extensions.
-///
-/// Uses `preferred_username` if available, otherwise falls back to `user`.
-fn get_username_from_request(request: &Request<Body>) -> Option<String> {
-    request
-        .extensions()
-        .get::<crate::AuthenticatedIdentity>()
-        .map(|id| {
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::AuthMethod;
+
+    /// Test helper mirroring the production username-selection logic.
+    fn get_username_from_request(request: &Request<Body>) -> Option<String> {
+        AuthenticatedIdentity::from_extensions_ref(request.extensions()).map(|id| {
             id.preferred_username
                 .clone()
                 .unwrap_or_else(|| id.user.clone())
         })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{AuthMethod, AuthenticatedIdentity};
+    }
 
     #[test]
     fn test_get_username_with_preferred() {

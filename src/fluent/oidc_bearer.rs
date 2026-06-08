@@ -3,41 +3,71 @@
 //! Replaces `axum-keycloak-auth` with direct JWT validation via `jsonwebtoken`.
 //! Fetches JWKS from the OIDC provider at startup and refreshes periodically.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::{extract::Request, middleware::Next, response::{IntoResponse, Response}};
+use axum::{
+    extract::Request,
+    middleware::Next,
+    response::{IntoResponse, Response},
+};
 use http::StatusCode;
-use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header, jwk::JwkSet};
+use jsonwebtoken::{
+    Algorithm, DecodingKey, Validation, decode, decode_header,
+    jwk::{Jwk, JwkSet, KeyAlgorithm},
+};
 use tokio::sync::RwLock;
 
 use crate::{AuthMethod, AuthenticatedIdentity, Error, Result, utils::Sensitive};
 
-/// Configuration for Bearer JWT validation.
+/// Configuration for the Bearer JWT middleware.
+///
+/// Validation parameters (issuer, audiences) live on the [`JwksProvider`]; this
+/// only carries what the middleware itself needs.
 #[derive(Clone)]
 pub(crate) struct BearerAuthConfig {
-    pub audiences: Vec<String>,
-    pub issuer: String,
     pub passthrough: bool,
     pub roles_claim: String,
 }
 
+/// A decoding key paired with its pre-built validation parameters.
+///
+/// Both are derived once when the JWKS is loaded/refreshed, so token validation
+/// is a cheap map lookup instead of re-parsing the JWK and rebuilding
+/// `Validation` (with its issuer/audience `Vec`s) on every request.
+struct CachedKey {
+    decoding_key: DecodingKey,
+    validation: Validation,
+}
+
 /// Provides JWKS keys for JWT validation, with periodic refresh.
 pub(crate) struct JwksProvider {
-    jwks: RwLock<JwkSet>,
+    /// Pre-built decode key + validation, keyed by JWK `kid`.
+    keys: RwLock<HashMap<String, Arc<CachedKey>>>,
     jwks_url: String,
     http_client: openidconnect::reqwest::Client,
+    /// Validation parameters, fixed for the provider's lifetime.
+    issuer: String,
+    audiences: Vec<String>,
 }
 
 impl JwksProvider {
     /// Create a new provider, fetching the initial JWKS.
-    pub async fn new(jwks_url: String) -> Result<Arc<Self>> {
+    pub async fn new(
+        jwks_url: String,
+        issuer: String,
+        audiences: Vec<String>,
+    ) -> Result<Arc<Self>> {
         let http_client = openidconnect::reqwest::Client::new();
         let jwks = Self::fetch_jwks(&http_client, &jwks_url).await?;
+        let keys = Self::build_keys(&jwks, &issuer, &audiences);
 
         let provider = Arc::new(Self {
-            jwks: RwLock::new(jwks),
+            keys: RwLock::new(keys),
             jwks_url,
             http_client,
+            issuer,
+            audiences,
         });
 
         // Spawn background refresh task
@@ -59,18 +89,65 @@ impl JwksProvider {
         Ok(provider)
     }
 
-    /// Re-fetch JWKS from the provider.
+    /// Re-fetch JWKS from the provider and rebuild the cached keys.
     pub async fn refresh(&self) -> Result<()> {
         let jwks = Self::fetch_jwks(&self.http_client, &self.jwks_url).await?;
-        *self.jwks.write().await = jwks;
+        let keys = Self::build_keys(&jwks, &self.issuer, &self.audiences);
+        *self.keys.write().await = keys;
         tracing::debug!("JWKS refreshed successfully");
         Ok(())
     }
 
-    async fn fetch_jwks(
-        client: &openidconnect::reqwest::Client,
-        url: &str,
-    ) -> Result<JwkSet> {
+    /// Build the per-`kid` decode key + validation cache from a fetched JWK set.
+    fn build_keys(
+        jwks: &JwkSet,
+        issuer: &str,
+        audiences: &[String],
+    ) -> HashMap<String, Arc<CachedKey>> {
+        if audiences.is_empty() {
+            tracing::warn!(
+                "OIDC audience validation is disabled: no audiences configured. Any token \
+                 issued by the trusted issuer will be accepted regardless of its `aud` claim. \
+                 Set [http.oidc] audiences for production."
+            );
+        }
+
+        let mut map = HashMap::new();
+        for jwk in &jwks.keys {
+            let Some(kid) = jwk.common.key_id.clone() else {
+                continue;
+            };
+            let decoding_key = match DecodingKey::from_jwk(jwk) {
+                Ok(key) => key,
+                Err(e) => {
+                    tracing::warn!(error = %e, kid, "Skipping JWK that failed to parse");
+                    continue;
+                }
+            };
+
+            // Use the key's declared algorithm; `jsonwebtoken` additionally
+            // enforces that the key family matches, preventing alg-confusion.
+            let alg = jwk_signing_algorithm(jwk).unwrap_or(Algorithm::RS256);
+            let mut validation = Validation::new(alg);
+            if audiences.is_empty() {
+                validation.validate_aud = false;
+            } else {
+                validation.set_audience(audiences);
+            }
+            validation.set_issuer(&[issuer]);
+
+            map.insert(
+                kid,
+                Arc::new(CachedKey {
+                    decoding_key,
+                    validation,
+                }),
+            );
+        }
+        map
+    }
+
+    async fn fetch_jwks(client: &openidconnect::reqwest::Client, url: &str) -> Result<JwkSet> {
         let resp = client
             .get(url)
             .send()
@@ -97,7 +174,6 @@ impl JwksProvider {
     pub async fn validate_token(
         self: &Arc<Self>,
         token: &str,
-        config: &BearerAuthConfig,
     ) -> std::result::Result<serde_json::Value, TokenError> {
         let header = decode_header(token).map_err(|e| {
             tracing::debug!(error = %e, "JWT header decode failed");
@@ -110,60 +186,60 @@ impl JwksProvider {
         })?;
 
         // Try to find key, refresh once if not found (key rotation)
-        let claims = match self.try_decode(token, kid, header.alg, config).await {
-            Ok(claims) => claims,
+        match self.try_decode(token, kid).await {
+            Ok(claims) => Ok(claims),
             Err(TokenError::KeyNotFound) => {
                 tracing::debug!(kid, "Key not found in JWKS, refreshing");
                 self.refresh().await.map_err(|_| TokenError::Invalid)?;
-                self.try_decode(token, kid, header.alg, config).await?
+                self.try_decode(token, kid).await
             }
-            Err(e) => return Err(e),
-        };
-
-        Ok(claims)
+            Err(e) => Err(e),
+        }
     }
 
     async fn try_decode(
         &self,
         token: &str,
         kid: &str,
-        alg: Algorithm,
-        config: &BearerAuthConfig,
     ) -> std::result::Result<serde_json::Value, TokenError> {
-        let jwks = self.jwks.read().await;
+        // Clone the Arc out so the read lock is released before decoding.
+        let cached = {
+            let keys = self.keys.read().await;
+            keys.get(kid).cloned()
+        };
+        let cached = cached.ok_or(TokenError::KeyNotFound)?;
 
-        let jwk = jwks.find(kid).ok_or(TokenError::KeyNotFound)?;
-
-        let key = DecodingKey::from_jwk(jwk).map_err(|e| {
-            tracing::debug!(error = %e, kid, "Failed to create decoding key from JWK");
-            TokenError::Invalid
-        })?;
-
-        // Use the algorithm from the JWT header. Security is enforced by jsonwebtoken:
-        // it verifies the key's algorithm family matches the header's algorithm, preventing
-        // alg-confusion attacks (e.g., an RSA key won't verify an HS256 signature).
-        let mut validation = Validation::new(alg);
-
-        if !config.audiences.is_empty() {
-            validation.set_audience(&config.audiences);
-        } else {
-            validation.validate_aud = false;
-        }
-        validation.set_issuer(&[&config.issuer]);
-
-        let token_data = decode::<serde_json::Value>(token, &key, &validation).map_err(|e| {
-            tracing::debug!(
-                error = %e,
-                expected_issuer = %config.issuer,
-                expected_audiences = ?config.audiences,
-                kid,
-                alg = ?alg,
-                "JWT validation failed"
-            );
-            TokenError::Invalid
-        })?;
+        let token_data =
+            decode::<serde_json::Value>(token, &cached.decoding_key, &cached.validation).map_err(
+                |e| {
+                    tracing::debug!(error = %e, kid, "JWT validation failed");
+                    TokenError::Invalid
+                },
+            )?;
 
         Ok(token_data.claims)
+    }
+}
+
+/// Maps a JWK's declared signing algorithm to a `jsonwebtoken::Algorithm`.
+///
+/// Returns `None` for keys with no declared (or non-signing) algorithm, in which
+/// case the caller falls back to a sensible default.
+fn jwk_signing_algorithm(jwk: &Jwk) -> Option<Algorithm> {
+    match jwk.common.key_algorithm? {
+        KeyAlgorithm::HS256 => Some(Algorithm::HS256),
+        KeyAlgorithm::HS384 => Some(Algorithm::HS384),
+        KeyAlgorithm::HS512 => Some(Algorithm::HS512),
+        KeyAlgorithm::ES256 => Some(Algorithm::ES256),
+        KeyAlgorithm::ES384 => Some(Algorithm::ES384),
+        KeyAlgorithm::RS256 => Some(Algorithm::RS256),
+        KeyAlgorithm::RS384 => Some(Algorithm::RS384),
+        KeyAlgorithm::RS512 => Some(Algorithm::RS512),
+        KeyAlgorithm::PS256 => Some(Algorithm::PS256),
+        KeyAlgorithm::PS384 => Some(Algorithm::PS384),
+        KeyAlgorithm::PS512 => Some(Algorithm::PS512),
+        KeyAlgorithm::EdDSA => Some(Algorithm::EdDSA),
+        _ => None,
     }
 }
 
@@ -260,10 +336,10 @@ pub(crate) async fn bearer_auth_middleware(
         return (StatusCode::UNAUTHORIZED, "Missing Bearer token").into_response();
     };
 
-    match jwks.validate_token(token, &config).await {
+    match jwks.validate_token(token).await {
         Ok(claims) => {
             if let Some(identity) = claims_to_identity(&claims, &config.roles_claim, Some(token)) {
-                request.extensions_mut().insert(identity);
+                request.extensions_mut().insert(Arc::new(identity));
             }
             next.run(request).await
         }

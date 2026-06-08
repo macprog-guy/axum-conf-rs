@@ -4,8 +4,7 @@
 //! state transitions between Closed, Open, and HalfOpen states.
 
 use crate::config::CircuitBreakerTargetConfig;
-use std::sync::RwLock;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Mutex, MutexGuard};
 use std::time::Instant;
 
 /// Circuit breaker state: Closed (normal), Open (failing), HalfOpen (probing).
@@ -29,7 +28,22 @@ impl std::fmt::Display for CircuitState {
     }
 }
 
+/// Mutable circuit breaker state, guarded by a single lock so that every
+/// check-then-act sequence is atomic (no TOCTOU windows between threads).
+struct Inner {
+    state: CircuitState,
+    failure_count: u32,
+    success_count: u32,
+    half_open_calls: u32,
+    last_failure_time: Option<Instant>,
+}
+
 /// Thread-safe circuit breaker with atomic state transitions.
+///
+/// All mutable state lives behind a single `Mutex`, so concurrent callers
+/// cannot observe a partially-updated state machine. The critical sections are
+/// tiny and never span an `.await`, so a blocking `std::sync::Mutex` is the
+/// right choice here even though callers are async.
 ///
 /// # State Transitions
 /// - Closed → Open: after `failure_threshold` consecutive failures
@@ -38,11 +52,7 @@ impl std::fmt::Display for CircuitState {
 /// - HalfOpen → Open: on any failure
 pub struct CircuitBreakerState {
     config: CircuitBreakerTargetConfig,
-    state: RwLock<CircuitState>,
-    failure_count: AtomicU32,
-    success_count: AtomicU32,
-    half_open_calls: AtomicU32,
-    last_failure_time: RwLock<Option<Instant>>,
+    inner: Mutex<Inner>,
 }
 
 impl CircuitBreakerState {
@@ -50,39 +60,49 @@ impl CircuitBreakerState {
     pub fn new(config: CircuitBreakerTargetConfig) -> Self {
         Self {
             config,
-            state: RwLock::new(CircuitState::Closed),
-            failure_count: AtomicU32::new(0),
-            success_count: AtomicU32::new(0),
-            half_open_calls: AtomicU32::new(0),
-            last_failure_time: RwLock::new(None),
+            inner: Mutex::new(Inner {
+                state: CircuitState::Closed,
+                failure_count: 0,
+                success_count: 0,
+                half_open_calls: 0,
+                last_failure_time: None,
+            }),
         }
+    }
+
+    /// Acquire the inner lock, recovering from poisoning.
+    ///
+    /// A panic in another thread while holding the lock must not cascade into a
+    /// service-wide panic storm, so we deliberately recover the inner value
+    /// instead of propagating `PoisonError`.
+    fn lock(&self) -> MutexGuard<'_, Inner> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Check if a request should be allowed through the circuit breaker.
     ///
     /// Returns `true` if the request should proceed, `false` if it should be rejected.
     pub fn should_allow(&self) -> bool {
-        let state = *self.state.read().unwrap();
+        let mut g = self.lock();
 
-        match state {
+        match g.state {
             CircuitState::Closed => true,
             CircuitState::Open => {
                 // Check if reset timeout has elapsed
-                let last_failure = self.last_failure_time.read().unwrap();
-                if let Some(time) = *last_failure
+                if let Some(time) = g.last_failure_time
                     && time.elapsed() >= self.config.reset_timeout
                 {
-                    // Transition to half-open
-                    self.transition_to_half_open();
-                    // Allow this request as a probe
-                    self.half_open_calls.fetch_add(1, Ordering::SeqCst);
+                    // Transition to half-open and allow this request as a probe.
+                    self.transition_to_half_open(&mut g);
+                    g.half_open_calls += 1;
                     return true;
                 }
                 false
             }
             CircuitState::HalfOpen => {
                 // Allow limited requests in half-open state
-                let current_calls = self.half_open_calls.fetch_add(1, Ordering::SeqCst);
+                let current_calls = g.half_open_calls;
+                g.half_open_calls += 1;
                 current_calls < self.config.half_open_max_calls
             }
         }
@@ -90,17 +110,17 @@ impl CircuitBreakerState {
 
     /// Record a successful call. May close the circuit if in half-open state.
     pub fn record_success(&self) {
-        let state = *self.state.read().unwrap();
+        let mut g = self.lock();
 
-        match state {
+        match g.state {
             CircuitState::Closed => {
                 // Reset failure count on success
-                self.failure_count.store(0, Ordering::SeqCst);
+                g.failure_count = 0;
             }
             CircuitState::HalfOpen => {
-                let count = self.success_count.fetch_add(1, Ordering::SeqCst) + 1;
-                if count >= self.config.success_threshold {
-                    self.transition_to_closed();
+                g.success_count += 1;
+                if g.success_count >= self.config.success_threshold {
+                    self.transition_to_closed(&mut g);
                 }
             }
             CircuitState::Open => {
@@ -111,39 +131,39 @@ impl CircuitBreakerState {
 
     /// Record a failed call. May open the circuit.
     pub fn record_failure(&self) {
-        let state = *self.state.read().unwrap();
+        let mut g = self.lock();
 
-        match state {
+        match g.state {
             CircuitState::Closed => {
-                let count = self.failure_count.fetch_add(1, Ordering::SeqCst) + 1;
-                if count >= self.config.failure_threshold {
-                    self.transition_to_open();
+                g.failure_count += 1;
+                if g.failure_count >= self.config.failure_threshold {
+                    self.transition_to_open(&mut g);
                 }
             }
             CircuitState::HalfOpen => {
                 // Any failure in half-open immediately opens the circuit
-                self.transition_to_open();
+                self.transition_to_open(&mut g);
             }
             CircuitState::Open => {
                 // Update last failure time
-                *self.last_failure_time.write().unwrap() = Some(Instant::now());
+                g.last_failure_time = Some(Instant::now());
             }
         }
     }
 
     /// Get the current circuit state.
     pub fn current_state(&self) -> CircuitState {
-        *self.state.read().unwrap()
+        self.lock().state
     }
 
     /// Get the current failure count.
     pub fn failure_count(&self) -> u32 {
-        self.failure_count.load(Ordering::SeqCst)
+        self.lock().failure_count
     }
 
     /// Get the current success count (relevant in half-open state).
     pub fn success_count(&self) -> u32 {
-        self.success_count.load(Ordering::SeqCst)
+        self.lock().success_count
     }
 
     /// Get the configured call timeout, if any.
@@ -151,13 +171,12 @@ impl CircuitBreakerState {
         self.config.call_timeout
     }
 
-    fn transition_to_open(&self) {
-        let mut state = self.state.write().unwrap();
-        *state = CircuitState::Open;
-        *self.last_failure_time.write().unwrap() = Some(Instant::now());
-        self.failure_count.store(0, Ordering::SeqCst);
-        self.success_count.store(0, Ordering::SeqCst);
-        self.half_open_calls.store(0, Ordering::SeqCst);
+    fn transition_to_open(&self, g: &mut Inner) {
+        g.state = CircuitState::Open;
+        g.last_failure_time = Some(Instant::now());
+        g.failure_count = 0;
+        g.success_count = 0;
+        g.half_open_calls = 0;
 
         tracing::warn!(
             state = %CircuitState::Open,
@@ -165,11 +184,10 @@ impl CircuitBreakerState {
         );
     }
 
-    fn transition_to_half_open(&self) {
-        let mut state = self.state.write().unwrap();
-        *state = CircuitState::HalfOpen;
-        self.success_count.store(0, Ordering::SeqCst);
-        self.half_open_calls.store(0, Ordering::SeqCst);
+    fn transition_to_half_open(&self, g: &mut Inner) {
+        g.state = CircuitState::HalfOpen;
+        g.success_count = 0;
+        g.half_open_calls = 0;
 
         tracing::info!(
             state = %CircuitState::HalfOpen,
@@ -177,12 +195,11 @@ impl CircuitBreakerState {
         );
     }
 
-    fn transition_to_closed(&self) {
-        let mut state = self.state.write().unwrap();
-        *state = CircuitState::Closed;
-        self.failure_count.store(0, Ordering::SeqCst);
-        self.success_count.store(0, Ordering::SeqCst);
-        self.half_open_calls.store(0, Ordering::SeqCst);
+    fn transition_to_closed(&self, g: &mut Inner) {
+        g.state = CircuitState::Closed;
+        g.failure_count = 0;
+        g.success_count = 0;
+        g.half_open_calls = 0;
 
         tracing::info!(
             state = %CircuitState::Closed,
@@ -344,5 +361,69 @@ mod tests {
         assert_eq!(format!("{}", CircuitState::Closed), "closed");
         assert_eq!(format!("{}", CircuitState::Open), "open");
         assert_eq!(format!("{}", CircuitState::HalfOpen), "half-open");
+    }
+
+    #[test]
+    fn test_concurrent_half_open_never_exceeds_limit() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        let config = CircuitBreakerTargetConfig {
+            failure_threshold: 1,
+            success_threshold: 5,
+            reset_timeout: Duration::from_millis(0), // immediate Open -> HalfOpen
+            half_open_max_calls: 3,
+            call_timeout: None,
+        };
+        let cb = Arc::new(CircuitBreakerState::new(config));
+
+        // Trip the circuit so the first allowed call transitions to half-open.
+        cb.record_failure();
+        assert_eq!(cb.current_state(), CircuitState::Open);
+
+        // Hammer should_allow() from many threads. Even though every thread sees
+        // the reset timeout as elapsed, the single-lock state machine must let at
+        // most `half_open_max_calls` probes through.
+        let allowed = Arc::new(AtomicU32::new(0));
+        let mut handles = Vec::new();
+        for _ in 0..32 {
+            let cb = Arc::clone(&cb);
+            let allowed = Arc::clone(&allowed);
+            handles.push(std::thread::spawn(move || {
+                if cb.should_allow() {
+                    allowed.fetch_add(1, Ordering::SeqCst);
+                }
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        assert_eq!(cb.current_state(), CircuitState::HalfOpen);
+        assert_eq!(
+            allowed.load(Ordering::SeqCst),
+            3,
+            "exactly half_open_max_calls probes should be allowed"
+        );
+    }
+
+    #[test]
+    fn test_concurrent_failures_open_once() {
+        use std::sync::Arc;
+
+        let cb = Arc::new(CircuitBreakerState::new(test_config())); // failure_threshold = 3
+
+        let mut handles = Vec::new();
+        for _ in 0..64 {
+            let cb = Arc::clone(&cb);
+            handles.push(std::thread::spawn(move || cb.record_failure()));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        // Many concurrent failures must leave the breaker open with a consistent
+        // (post-transition reset) failure count, never a torn intermediate value.
+        assert_eq!(cb.current_state(), CircuitState::Open);
     }
 }

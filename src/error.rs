@@ -192,9 +192,36 @@ impl Error {
         }
     }
 
+    /// Returns whether this error's message is safe to expose to HTTP clients.
+    ///
+    /// Client-facing kinds (auth, invalid input, circuit-breaker signals) carry
+    /// messages meant for the caller. Internal kinds (database, configuration,
+    /// TLS, I/O, internal) may embed sensitive detail — query text, table or
+    /// constraint names, file paths — and must be redacted from responses while
+    /// still being logged server-side.
+    pub fn is_client_safe(&self) -> bool {
+        matches!(
+            self.kind,
+            ErrorKind::Authentication
+                | ErrorKind::InvalidInput
+                | ErrorKind::CircuitBreakerOpen
+                | ErrorKind::CircuitBreakerFailed
+        )
+    }
+
     /// Converts the error into a structured error response.
+    ///
+    /// For internal error kinds the message is replaced with a generic string so
+    /// that no internal detail leaks to clients; the stable `error_code` is always
+    /// preserved. Use the `Display`/`Debug` impls (or server-side logs) to obtain
+    /// the full message.
     pub fn to_error_response(&self) -> ErrorResponse {
-        ErrorResponse::new(self.error_code(), self.to_string())
+        let message = if self.is_client_safe() {
+            self.to_string()
+        } else {
+            "An internal error occurred".to_string()
+        };
+        ErrorResponse::new(self.error_code(), message)
     }
 
     /// Consumes the error and returns the inner error source.
@@ -305,9 +332,11 @@ impl IntoResponse for Error {
         let status = self.status_code();
         let error_response = self.to_error_response();
 
+        // Log the full underlying detail server-side, even when the client-facing
+        // message is redacted, so operators retain the real cause.
         tracing::error!(
             error_code = %error_response.error_code,
-            message = %error_response.message,
+            detail = %self.source,
             status = %status.as_u16(),
             "Error occurred"
         );
@@ -363,7 +392,6 @@ impl From<rustls::Error> for Error {
         Self::new(ErrorKind::Tls, err)
     }
 }
-
 
 // ============================================================================
 // ErrorResponse
@@ -524,6 +552,30 @@ mod tests {
     fn test_error_code_database() {
         let err = Error::database("test");
         assert_eq!(err.error_code(), "DATABASE_ERROR");
+    }
+
+    #[test]
+    fn test_internal_error_response_is_redacted() {
+        // A database error embedding a sensitive query must not leak its message.
+        let err = Error::database("SELECT secret FROM users WHERE token = 'abc'");
+        let resp = err.to_error_response();
+        assert_eq!(resp.error_code, "DATABASE_ERROR");
+        assert_eq!(resp.message, "An internal error occurred");
+        assert!(!resp.message.contains("secret"));
+        assert!(!err.is_client_safe());
+    }
+
+    #[test]
+    fn test_client_safe_error_response_preserves_message() {
+        let err = Error::invalid_input("email is required");
+        let resp = err.to_error_response();
+        assert_eq!(resp.error_code, "INVALID_INPUT");
+        assert_eq!(resp.message, "email is required");
+        assert!(err.is_client_safe());
+
+        let err = Error::authentication("token expired");
+        assert!(err.is_client_safe());
+        assert_eq!(err.to_error_response().message, "token expired");
     }
 
     #[test]
@@ -697,10 +749,13 @@ mod tests {
 
     #[test]
     fn test_to_error_response() {
+        // Internal errors are redacted in the client-facing response; the code is
+        // preserved and the original detail must not leak.
         let err = Error::internal("Something went wrong");
         let response = err.to_error_response();
         assert_eq!(response.error_code, "INTERNAL_ERROR");
-        assert!(response.message.contains("Something went wrong"));
+        assert_eq!(response.message, "An internal error occurred");
+        assert!(!response.message.contains("Something went wrong"));
     }
 
     // ========================================================================

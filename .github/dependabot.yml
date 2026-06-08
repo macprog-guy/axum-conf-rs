@@ -1,0 +1,16 @@
+version: 2
+updates:
+  # Keep GitHub Actions pinned to current versions (supply-chain maintenance).
+  # To enforce SHA pinning, set the workflow refs to commit SHAs; Dependabot
+  # will then bump the SHAs and keep the version comments updated.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+
+  # Keep Cargo dependencies up to date.
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

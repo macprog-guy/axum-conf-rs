@@ -45,10 +45,7 @@ pub(crate) fn authenticate(
 ///
 /// Used by the passthrough-aware middleware to decide whether to pass through
 /// or reject when coexisting with OIDC auth code flow.
-pub(crate) fn try_authenticate(
-    config: &HttpBasicAuthConfig,
-    headers: &HeaderMap,
-) -> AuthOutcome {
+pub(crate) fn try_authenticate(config: &HttpBasicAuthConfig, headers: &HeaderMap) -> AuthOutcome {
     let mut had_credentials = false;
 
     // Try Basic Auth first (if mode allows)
@@ -58,7 +55,8 @@ pub(crate) fn try_authenticate(
             Err(response) => return AuthOutcome::InvalidCredentials(response),
             Ok(None) => {
                 // Check if an Authorization: Basic header was present but didn't match
-                if headers.get(AUTHORIZATION)
+                if headers
+                    .get(AUTHORIZATION)
                     .and_then(|h| h.to_str().ok())
                     .is_some_and(|v| v.starts_with("Basic "))
                 {
@@ -221,7 +219,7 @@ pub(crate) async fn basic_auth_middleware(
                 user = %identity.user,
                 "Request authenticated via Basic Auth/API Key"
             );
-            request.extensions_mut().insert(identity);
+            request.extensions_mut().insert(Arc::new(identity));
             next.run(request).await
         }
         AuthOutcome::InvalidCredentials(response) => {
@@ -229,7 +227,9 @@ pub(crate) async fn basic_auth_middleware(
             response
         }
         AuthOutcome::NoCredentials if passthrough => {
-            tracing::trace!("No Basic Auth/API Key credentials, passing through to next auth layer");
+            tracing::trace!(
+                "No Basic Auth/API Key credentials, passing through to next auth layer"
+            );
             next.run(request).await
         }
         AuthOutcome::NoCredentials => {

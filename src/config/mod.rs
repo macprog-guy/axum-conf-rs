@@ -823,8 +823,8 @@ format = "compact"
         assert_eq!(config.http.max_concurrent_requests, 500);
 
         // Check that defaults remain for non-overridden values
-        assert_eq!(config.http.bind_addr, "127.0.0.1");
-        assert_eq!(config.http.full_bind_addr(), "127.0.0.1:9000");
+        assert_eq!(config.http.bind_addr, "0.0.0.0");
+        assert_eq!(config.http.full_bind_addr(), "0.0.0.0:9000");
         assert_eq!(config.http.liveness_route, "/live");
         assert_eq!(config.http.readiness_route, "/ready");
     }
@@ -1550,7 +1550,7 @@ max_payload_size_bytes = "1KiB"
     fn test_config_new_creates_unit_config() {
         let config = Config::new();
         assert_eq!(config.app, ());
-        assert_eq!(config.http.bind_addr, "127.0.0.1");
+        assert_eq!(config.http.bind_addr, "0.0.0.0");
     }
 
     #[test]

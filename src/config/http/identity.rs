@@ -4,6 +4,7 @@ use crate::utils::Sensitive;
 use axum::extract::{FromRequestParts, OptionalFromRequestParts};
 use http::{StatusCode, request::Parts};
 use std::convert::Infallible;
+use std::sync::Arc;
 
 /// The authentication method used for a request.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -57,6 +58,47 @@ pub struct AuthenticatedIdentity {
     pub access_token: Option<Sensitive<String>>,
 }
 
+impl AuthenticatedIdentity {
+    /// Looks up the shared identity from request extensions.
+    ///
+    /// The built-in auth middleware stores `Arc<AuthenticatedIdentity>` so that
+    /// role checks, span recording, and handler extraction share one allocation.
+    /// A bare `AuthenticatedIdentity` (e.g. inserted by custom middleware) is
+    /// accepted as a fallback for backwards compatibility.
+    pub(crate) fn arc_from_extensions(
+        extensions: &http::Extensions,
+    ) -> Option<Arc<AuthenticatedIdentity>> {
+        if let Some(arc) = extensions.get::<Arc<AuthenticatedIdentity>>() {
+            Some(Arc::clone(arc))
+        } else {
+            extensions
+                .get::<AuthenticatedIdentity>()
+                .map(|id| Arc::new(id.clone()))
+        }
+    }
+
+    /// Returns true if an authenticated identity is present in the extensions.
+    #[cfg(feature = "keycloak")]
+    pub(crate) fn present_in(extensions: &http::Extensions) -> bool {
+        extensions.get::<Arc<AuthenticatedIdentity>>().is_some()
+            || extensions.get::<AuthenticatedIdentity>().is_some()
+    }
+
+    /// Borrows the identity from request extensions without cloning.
+    ///
+    /// Useful for read-only paths (e.g. recording the user to a tracing span)
+    /// that neither need ownership nor a refcount bump.
+    pub(crate) fn from_extensions_ref(
+        extensions: &http::Extensions,
+    ) -> Option<&AuthenticatedIdentity> {
+        if let Some(arc) = extensions.get::<Arc<AuthenticatedIdentity>>() {
+            Some(arc.as_ref())
+        } else {
+            extensions.get::<AuthenticatedIdentity>()
+        }
+    }
+}
+
 impl<S: Send + Sync> FromRequestParts<S> for AuthenticatedIdentity {
     type Rejection = (StatusCode, &'static str);
 
@@ -64,10 +106,8 @@ impl<S: Send + Sync> FromRequestParts<S> for AuthenticatedIdentity {
         parts: &mut Parts,
         _state: &S,
     ) -> std::result::Result<Self, Self::Rejection> {
-        parts
-            .extensions
-            .get::<AuthenticatedIdentity>()
-            .cloned()
+        Self::arc_from_extensions(&parts.extensions)
+            .map(|arc| (*arc).clone())
             .ok_or((StatusCode::UNAUTHORIZED, "Authentication required"))
     }
 }
@@ -79,6 +119,6 @@ impl<S: Send + Sync> OptionalFromRequestParts<S> for AuthenticatedIdentity {
         parts: &mut Parts,
         _state: &S,
     ) -> std::result::Result<Option<Self>, Self::Rejection> {
-        Ok(parts.extensions.get::<AuthenticatedIdentity>().cloned())
+        Ok(Self::arc_from_extensions(&parts.extensions).map(|arc| (*arc).clone()))
     }
 }

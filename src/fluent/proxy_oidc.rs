@@ -20,7 +20,7 @@ pub(crate) async fn proxy_oidc_middleware(
             user = %identity.user,
             "Request authenticated via proxy OIDC"
         );
-        request.extensions_mut().insert(identity);
+        request.extensions_mut().insert(Arc::new(identity));
     }
 
     next.run(request).await

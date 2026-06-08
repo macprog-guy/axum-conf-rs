@@ -36,7 +36,9 @@ use openidconnect::{
 use serde::Deserialize;
 use tower_sessions::Session;
 
-use crate::{AuthMethod, AuthenticatedIdentity, Error, Result, config::HttpOidcConfig, utils::Sensitive};
+use crate::{
+    AuthMethod, AuthenticatedIdentity, Error, Result, config::HttpOidcConfig, utils::Sensitive,
+};
 
 // Session keys
 const SESSION_PKCE_VERIFIER: &str = "oidc_pkce_verifier";
@@ -268,8 +270,7 @@ pub(crate) async fn callback_handler(
             use base64::Engine;
             let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
             if let Ok(payload) = engine.decode(jwt_parts[1])
-                && let Ok(raw_claims) =
-                    serde_json::from_slice::<serde_json::Value>(&payload)
+                && let Ok(raw_claims) = serde_json::from_slice::<serde_json::Value>(&payload)
             {
                 tracing::debug!(
                     id_token_claims = %raw_claims,
@@ -363,11 +364,7 @@ pub(crate) async fn session_to_identity(
     next: Next,
 ) -> Response {
     // Skip if identity already set by Bearer token validation
-    if request
-        .extensions()
-        .get::<AuthenticatedIdentity>()
-        .is_some()
-    {
+    if AuthenticatedIdentity::present_in(request.extensions()) {
         return next.run(request).await;
     }
 
@@ -424,7 +421,7 @@ pub(crate) async fn session_to_identity(
         if let Some(identity) =
             parse_id_token_to_identity(&id_token_str, current_access.as_deref(), &roles_claim)
         {
-            request.extensions_mut().insert(identity);
+            request.extensions_mut().insert(Arc::new(identity));
         }
     }
 
@@ -541,7 +538,8 @@ mod tests {
         });
         let jwt = fake_jwt(&claims);
 
-        let identity = parse_id_token_to_identity(&jwt, Some("access-tok"), "applicationRoles").unwrap();
+        let identity =
+            parse_id_token_to_identity(&jwt, Some("access-tok"), "applicationRoles").unwrap();
         assert_eq!(identity.user, "user-123");
         assert_eq!(identity.email.as_deref(), Some("user@example.com"));
         assert_eq!(identity.preferred_username.as_deref(), Some("jdoe"));

@@ -8,6 +8,7 @@ keywords = ["axum","postgres","configuration","tokio"]
 categories = ["development-tools","rust-patterns","web-programming"]
 repository = "https://github.com/macprog-guy/axum-conf-rs.git"
 license = "MIT"
+rust-version = "1.92"
 
 [profile.dev]
 opt-level = 1
@@ -18,7 +19,9 @@ opt-level = 2
 
 [profile.release]
 opt-level = 3
-codegen-units = 4
+# Fat LTO requires a single codegen unit to be effective; `codegen-units = 4`
+# partially defeats it. Use 1 for a fully-optimized release.
+codegen-units = 1
 strip = true
 lto = true
 

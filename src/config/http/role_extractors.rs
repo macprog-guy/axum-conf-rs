@@ -39,7 +39,7 @@ use std::ops::Deref;
 /// A single application role that can be required on a route.
 ///
 /// Implement this trait on a marker type to use with [`WithRole`].
-/// The [`role!`] macro provides a convenient way to do this.
+/// The [`role!`](crate::role) macro provides a convenient way to do this.
 ///
 /// # Example
 ///
@@ -62,7 +62,7 @@ pub trait ApplicationRole {
 /// A set of application roles that can be required on a route.
 ///
 /// Implement this trait on a marker type to use with [`AnyRole`] or [`AllRoles`].
-/// The [`roles!`] macro provides a convenient way to do this.
+/// The [`roles!`](crate::roles) macro provides a convenient way to do this.
 ///
 /// # Example
 ///

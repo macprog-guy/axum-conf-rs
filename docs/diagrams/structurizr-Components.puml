@@ -1,0 +1,64 @@
+@startuml
+title <size:24>Component View: axum-conf - FluentRouter & Middleware Engine</size>\n<size:24>Internal components of the FluentRouter & middleware engine.</size>
+
+set separator none
+left to right direction
+
+<style>
+  root {
+    BackgroundColor: #ffffff
+    FontColor: #444444
+  }
+</style>
+
+!include <C4/C4>
+!include <C4/C4_Context>
+!include <C4/C4_Container>
+!include <C4/C4_Component>
+
+Person(ApplicationDeveloper, "Application Developer", $descr="Builds production web services by composing routes and TOML configuration on top of axum-conf.", $tags="", $link="")
+
+System(TokioAxumRuntime, "Tokio / Axum Runtime", $descr="Async runtime and HTTP server hosting the service binary that embeds axum-conf.", $tags="", $link="")
+System(KeycloakOIDCProvider, "Keycloak / OIDC Provider", $descr="Identity provider issuing and signing JWTs; backs OIDC discovery, bearer validation and the authorization-code flow.", $tags="", $link="")
+System(AuthenticatingReverseProxy, "Authenticating Reverse Proxy", $descr="oauth2-proxy / Nginx auth_request that performs OIDC and forwards identity via X-Auth-Request-* headers.", $tags="", $link="")
+System(OpenTelemetryCollector, "OpenTelemetry Collector", $descr="Receives distributed traces over OTLP/gRPC.", $tags="", $link="")
+System(Prometheus, "Prometheus", $descr="Scrapes the /metrics endpoint for request counts and latencies.", $tags="", $link="")
+
+System_Boundary("axumconf_boundary", "axum-conf", $tags="") {
+  Container_Boundary("axumconf.FluentRouterMiddlewareEngine_boundary", "FluentRouter & Middleware Engine", $tags="") {
+    Component(axumconf.FluentRouterMiddlewareEngine.TrafficControl, "Traffic Control", $techn="Rust (control.rs)", $descr="Per-IP rate limiting, request timeout and outermost panic catching that returns 500 and keeps the server alive.", $tags="", $link="")
+    Component(axumconf.FluentRouterMiddlewareEngine.ReadinessHook, "Readiness Hook", $techn="Rust (readiness.rs)", $descr="Composes app-supplied /ready checks with built-in database and circuit-breaker health, yielding 503 when not ready.", $tags="", $link="")
+    Component(axumconf.FluentRouterMiddlewareEngine.GracefulShutdown, "Graceful Shutdown", $techn="Rust (shutdown.rs)", $descr="Listens for SIGTERM, notifies subscribers and drains in-flight connections within the configured timeout.", $tags="", $link="")
+    Component(axumconf.FluentRouterMiddlewareEngine.FluentRouter, "FluentRouter", $techn="Rust (router.rs)", $descr="Core builder type. Holds state, config and the inner axum::Router; exposes route()/with_state()/with_readiness_check().", $tags="", $link="")
+    Component(axumconf.FluentRouterMiddlewareEngine.MiddlewareOrchestrator, "Middleware Orchestrator", $techn="Rust (builder.rs)", $descr="setup_middleware() applies every layer innermost-to-outermost, then start() binds the listener and serves.", $tags="", $link="")
+    Component(axumconf.FluentRouterMiddlewareEngine.Authentication, "Authentication", $techn="Rust (auth.rs, oidc_*, basic_auth, proxy_oidc)", $descr="OIDC bearer + auth-code flow, HTTP Basic/API key, proxy-OIDC headers and browser login redirect. Produces a unified AuthenticatedIdentity extractor.", $tags="", $link="")
+    Component(axumconf.FluentRouterMiddlewareEngine.Observability, "Observability", $techn="Rust (observability.rs, user_span.rs)", $descr="Structured request logging with UUIDv7 correlation IDs, Prometheus metrics endpoint and OpenTelemetry/OTLP trace export.", $tags="", $link="")
+    Component(axumconf.FluentRouterMiddlewareEngine.RequestHandling, "Request Handling", $techn="Rust (request.rs, dedup.rs)", $descr="Payload size limits, concurrency limiting, request deduplication and request-ID assignment.", $tags="", $link="")
+    Component(axumconf.FluentRouterMiddlewareEngine.FeatureMiddleware, "Feature Middleware", $techn="Rust (features.rs)", $descr="Routing, compression, CORS, security headers (Helmet), sessions, static files and liveness/readiness probes.", $tags="", $link="")
+  }
+
+  Container(axumconf.Configuration, "Configuration", $techn="Rust, serde, toml, regex", $descr="Loads config/{RUST_ENV}.toml (or strings/builders), substitutes {{ ENV_VAR }} references and validates HTTP, database, OIDC, logging and middleware sections.", $tags="", $link="")
+  Container(axumconf.CircuitBreaker, "Circuit Breaker", $techn="Rust, dashmap (feature: circuit-breaker)", $descr="Per-target fail-fast resilience (closed/open/half-open state machine) for the database and external HTTP services.", $tags="", $link="")
+}
+
+Rel(ApplicationDeveloper, axumconf.FluentRouterMiddlewareEngine.FluentRouter, "Adds routes / state / readiness checks to", $techn="Rust API", $tags="", $link="")
+Rel(axumconf.FluentRouterMiddlewareEngine.FluentRouter, axumconf.Configuration, "Reads configuration from", $techn="", $tags="", $link="")
+Rel(axumconf.FluentRouterMiddlewareEngine.FluentRouter, axumconf.FluentRouterMiddlewareEngine.MiddlewareOrchestrator, "Hands assembly to", $techn="", $tags="", $link="")
+Rel(axumconf.FluentRouterMiddlewareEngine.MiddlewareOrchestrator, axumconf.FluentRouterMiddlewareEngine.Authentication, "Layers", $techn="", $tags="", $link="")
+Rel(axumconf.FluentRouterMiddlewareEngine.MiddlewareOrchestrator, axumconf.FluentRouterMiddlewareEngine.Observability, "Layers", $techn="", $tags="", $link="")
+Rel(axumconf.FluentRouterMiddlewareEngine.MiddlewareOrchestrator, axumconf.FluentRouterMiddlewareEngine.RequestHandling, "Layers", $techn="", $tags="", $link="")
+Rel(axumconf.FluentRouterMiddlewareEngine.MiddlewareOrchestrator, axumconf.FluentRouterMiddlewareEngine.FeatureMiddleware, "Layers", $techn="", $tags="", $link="")
+Rel(axumconf.FluentRouterMiddlewareEngine.MiddlewareOrchestrator, axumconf.FluentRouterMiddlewareEngine.TrafficControl, "Layers", $techn="", $tags="", $link="")
+Rel(axumconf.FluentRouterMiddlewareEngine.MiddlewareOrchestrator, axumconf.FluentRouterMiddlewareEngine.ReadinessHook, "Mounts", $techn="", $tags="", $link="")
+Rel(axumconf.FluentRouterMiddlewareEngine.MiddlewareOrchestrator, axumconf.FluentRouterMiddlewareEngine.GracefulShutdown, "Wires", $techn="", $tags="", $link="")
+Rel(axumconf.FluentRouterMiddlewareEngine.Authentication, KeycloakOIDCProvider, "Validates JWTs / OIDC flow with", $techn="HTTPS", $tags="", $link="")
+Rel(AuthenticatingReverseProxy, axumconf.FluentRouterMiddlewareEngine.Authentication, "Provides identity headers to", $techn="", $tags="", $link="")
+Rel(axumconf.FluentRouterMiddlewareEngine.Observability, OpenTelemetryCollector, "Exports traces to", $techn="OTLP / gRPC", $tags="", $link="")
+Rel(Prometheus, axumconf.FluentRouterMiddlewareEngine.Observability, "Scrapes metrics from", $techn="HTTP", $tags="", $link="")
+Rel(axumconf.FluentRouterMiddlewareEngine.ReadinessHook, axumconf.CircuitBreaker, "Checks health of", $techn="", $tags="", $link="")
+Rel(axumconf.FluentRouterMiddlewareEngine.ReadinessHook, axumconf.Configuration, "Checks database health via", $techn="", $tags="", $link="")
+Rel(axumconf.FluentRouterMiddlewareEngine.MiddlewareOrchestrator, TokioAxumRuntime, "Serves on", $techn="tokio", $tags="", $link="")
+
+SHOW_LEGEND(true)
+hide stereotypes
+@enduml

@@ -3,7 +3,11 @@
 use super::router::FluentRouter;
 use crate::HttpMiddleware;
 
-use {axum::routing::get, http::StatusCode, tower_http::timeout::TimeoutLayer};
+use {
+    axum::{response::IntoResponse, routing::get},
+    http::StatusCode,
+    tower_http::timeout::TimeoutLayer,
+};
 
 #[cfg(feature = "path-normalization")]
 use tower_http::normalize_path::NormalizePathLayer;
@@ -536,6 +540,22 @@ where
     /// 503 immediately without attempting a database query, preventing additional
     /// load on a failing database.
     ///
+    /// # Application Readiness Hook
+    ///
+    /// An application can make `/ready` reflect its own state — not just database
+    /// connectivity — by registering a closure with
+    /// [`with_readiness_check`](Self::with_readiness_check). The hook is **composed
+    /// with** the built-in checks: the endpoint reports ready iff the application
+    /// check returns [`Readiness::Ready`](crate::Readiness::Ready) *and* the
+    /// database / circuit-breaker check passes. A
+    /// [`Readiness::NotReady`](crate::Readiness::NotReady) result short-circuits to
+    /// `503 Service Unavailable` with the supplied message in the body.
+    ///
+    /// The application check is evaluated **before** the database check so a
+    /// saturated service can shed load without incurring a database round-trip.
+    /// When no hook is registered, behavior is unchanged (database-or-`OK`). The
+    /// hook is available regardless of the `postgres` feature.
+    ///
     /// This endpoint is placed after rate limiting and timeout middleware so that:
     /// - Excessive health check requests don't overwhelm the service
     /// - Database queries have a timeout to prevent hanging probes
@@ -565,6 +585,9 @@ where
         let readiness_route = self.config.http.readiness_route.clone();
         tracing::trace!(route = %readiness_route, "Readiness endpoint enabled");
 
+        // Application-supplied readiness hook, composed with the built-in checks.
+        let readiness_check = self.readiness_check.clone();
+
         #[cfg(feature = "postgres")]
         let db_pool = self.db_pool.clone();
 
@@ -573,32 +596,44 @@ where
 
         self.inner = self.inner.route(
             &readiness_route,
-            get(|| async move {
-                // When circuit-breaker and postgres are both enabled,
-                // check circuit state before querying
-                #[cfg(all(feature = "circuit-breaker", feature = "postgres"))]
-                {
-                    let breaker = circuit_breaker_registry.get_or_default("database");
-                    if !breaker.should_allow() {
-                        tracing::warn!(
-                            "Database circuit breaker is open, skipping health check query"
-                        );
-                        return (StatusCode::SERVICE_UNAVAILABLE, "Database circuit open\n");
+            get(
+                move |axum::extract::State(app_state): axum::extract::State<State>| async move {
+                    // 1. Application-supplied readiness check (evaluated first; it is
+                    //    cheap and app-specific, so a saturated service sheds load
+                    //    without a database round-trip). Composes with the built-in
+                    //    checks: ready iff the app check passes AND the DB check passes.
+                    if let Some(check) = readiness_check.as_ref()
+                        && let crate::Readiness::NotReady(msg) = check(app_state).await
+                    {
+                        tracing::warn!(reason = %msg, "Application readiness check reported not ready");
+                        return (StatusCode::SERVICE_UNAVAILABLE, format!("{msg}\n")).into_response();
                     }
-                }
 
-                #[cfg(feature = "postgres")]
-                match sqlx::query("SELECT 1").execute(&db_pool).await {
-                    Ok(_) => (StatusCode::OK, "OK\n"),
-                    Err(e) => {
+                    // 2. When circuit-breaker and postgres are both enabled,
+                    //    check circuit state before querying.
+                    #[cfg(all(feature = "circuit-breaker", feature = "postgres"))]
+                    {
+                        let breaker = circuit_breaker_registry.get_or_default("database");
+                        if !breaker.should_allow() {
+                            tracing::warn!(
+                                "Database circuit breaker is open, skipping health check query"
+                            );
+                            return (StatusCode::SERVICE_UNAVAILABLE, "Database circuit open\n")
+                                .into_response();
+                        }
+                    }
+
+                    // 3. Database connectivity check.
+                    #[cfg(feature = "postgres")]
+                    if let Err(e) = sqlx::query("SELECT 1").execute(&db_pool).await {
                         tracing::error!("Database health check failed: {}", e);
-                        (StatusCode::SERVICE_UNAVAILABLE, "Database unavailable\n")
+                        return (StatusCode::SERVICE_UNAVAILABLE, "Database unavailable\n")
+                            .into_response();
                     }
-                }
 
-                #[cfg(not(feature = "postgres"))]
-                (StatusCode::OK, "OK\n")
-            }),
+                    (StatusCode::OK, "OK\n").into_response()
+                },
+            ),
         );
         self
     }

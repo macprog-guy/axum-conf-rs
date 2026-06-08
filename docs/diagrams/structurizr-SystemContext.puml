@@ -1,0 +1,36 @@
+@startuml
+title <size:24>System Context View: axum-conf</size>\n<size:24>Who uses axum-conf and the external systems a service built on it integrates with.</size>
+
+set separator none
+left to right direction
+
+<style>
+  root {
+    BackgroundColor: #ffffff
+    FontColor: #444444
+  }
+</style>
+
+!include <C4/C4>
+!include <C4/C4_Context>
+
+Person(ApplicationDeveloper, "Application Developer", $descr="Builds production web services by composing routes and TOML configuration on top of axum-conf.", $tags="", $link="")
+System(TokioAxumRuntime, "Tokio / Axum Runtime", $descr="Async runtime and HTTP server hosting the service binary that embeds axum-conf.", $tags="", $link="")
+System(PostgreSQL, "PostgreSQL", $descr="Relational database accessed through an sqlx connection pool.", $tags="", $link="")
+System(KeycloakOIDCProvider, "Keycloak / OIDC Provider", $descr="Identity provider issuing and signing JWTs; backs OIDC discovery, bearer validation and the authorization-code flow.", $tags="", $link="")
+System(AuthenticatingReverseProxy, "Authenticating Reverse Proxy", $descr="oauth2-proxy / Nginx auth_request that performs OIDC and forwards identity via X-Auth-Request-* headers.", $tags="", $link="")
+System(axumconf, "axum-conf", $descr="Builder-pattern library that wraps axum::Router with a configurable middleware stack, health probes, auth, observability and resilience.", $tags="", $link="")
+System(OpenTelemetryCollector, "OpenTelemetry Collector", $descr="Receives distributed traces over OTLP/gRPC.", $tags="", $link="")
+System(Prometheus, "Prometheus", $descr="Scrapes the /metrics endpoint for request counts and latencies.", $tags="", $link="")
+
+Rel(ApplicationDeveloper, axumconf, "Composes routes & TOML config with", $techn="Rust API", $tags="", $link="")
+Rel(axumconf, TokioAxumRuntime, "Runs on", $techn="tokio::main", $tags="", $link="")
+Rel(axumconf, PostgreSQL, "Pools connections to", $techn="sqlx / TLS", $tags="", $link="")
+Rel(axumconf, KeycloakOIDCProvider, "Validates JWTs & runs auth-code flow against", $techn="OIDC / HTTPS", $tags="", $link="")
+Rel(AuthenticatingReverseProxy, axumconf, "Forwards authenticated identity to", $techn="HTTP headers", $tags="", $link="")
+Rel(axumconf, OpenTelemetryCollector, "Exports traces to", $techn="OTLP / gRPC", $tags="", $link="")
+Rel(Prometheus, axumconf, "Scrapes metrics from", $techn="HTTP /metrics", $tags="", $link="")
+
+SHOW_LEGEND(true)
+hide stereotypes
+@enduml

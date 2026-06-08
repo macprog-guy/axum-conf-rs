@@ -72,6 +72,9 @@ pub struct FluentRouter<State = ()> {
     pub(crate) dedup_cleanup_handle: Option<AbortOnDropHandle<()>>,
     pub(crate) panic_channel: Option<tokio::sync::mpsc::Sender<String>>,
     pub(crate) shutdown_notifier: ShutdownNotifier,
+    /// Optional application-supplied readiness check, composed with the built-in
+    /// database/circuit-breaker checks in [`Self::setup_readiness`].
+    pub(crate) readiness_check: Option<super::readiness::ReadinessCheck<State>>,
     #[cfg(feature = "postgres")]
     pub(crate) db_pool: sqlx_postgres::PgPool,
     #[cfg(feature = "circuit-breaker")]
@@ -191,6 +194,7 @@ where
             dedup_cleanup_handle: None,
             panic_channel: None,
             shutdown_notifier: ShutdownNotifier::default(),
+            readiness_check: None,
             #[cfg(feature = "postgres")]
             db_pool,
             #[cfg(feature = "circuit-breaker")]
@@ -433,6 +437,77 @@ where
             panic_channel: Some(ch),
             ..self
         }
+    }
+
+    /// Registers an application-supplied readiness check for the `/ready` endpoint.
+    ///
+    /// By default the readiness probe reflects only infrastructure health
+    /// (database connectivity, and the database circuit breaker when the
+    /// `circuit-breaker` feature is enabled). This hook lets a service make
+    /// `/ready` reflect *application* state as well — for example shedding load
+    /// when a bounded worker pool is saturated — so a load balancer stops routing
+    /// to an instance that cannot make progress.
+    ///
+    /// The check receives a clone of the application state and returns a
+    /// [`Readiness`](crate::Readiness). It is **composed with** the built-in
+    /// checks, not a replacement: the endpoint reports ready (`200 OK`) iff the
+    /// application check returns [`Readiness::Ready`](crate::Readiness::Ready)
+    /// *and* the built-in database / circuit-breaker check passes. A
+    /// [`Readiness::NotReady`](crate::Readiness::NotReady) result produces a
+    /// `503 Service Unavailable` whose body is the supplied message, and emits a
+    /// `tracing::warn!`.
+    ///
+    /// The application check is evaluated **before** the database check, so a
+    /// saturated service sheds load without incurring a database round-trip. Any
+    /// "sustained"/anti-flap logic lives in the closure (which can track state in
+    /// the application state `S`); the framework simply calls the predicate and
+    /// maps the result.
+    ///
+    /// This works regardless of the `postgres` feature — the closure is the only
+    /// signal when no database is configured.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use axum::routing::post;
+    /// use axum_conf::{Config, FluentRouter, Readiness, Result};
+    /// use std::sync::Arc;
+    /// use tokio::sync::Semaphore;
+    ///
+    /// #[derive(Clone)]
+    /// struct AppState {
+    ///     permits: Arc<Semaphore>,
+    /// }
+    ///
+    /// # async fn convert() {}
+    /// #[tokio::main]
+    /// async fn main() -> Result<()> {
+    ///     let config: Config = Config::default();
+    ///     let state = AppState { permits: Arc::new(Semaphore::new(8)) };
+    ///
+    ///     FluentRouter::<AppState>::with_state(config, state)?
+    ///         .route("/convert", post(convert))
+    ///         .with_readiness_check(|s: AppState| async move {
+    ///             if s.permits.available_permits() == 0 {
+    ///                 Readiness::not_ready("all conversion permits held")
+    ///             } else {
+    ///                 Readiness::ready()
+    ///             }
+    ///         })
+    ///         .setup_middleware()
+    ///         .await?
+    ///         .start()
+    ///         .await
+    /// }
+    /// ```
+    #[must_use]
+    pub fn with_readiness_check<F, Fut>(mut self, check: F) -> Self
+    where
+        F: Fn(State) -> Fut + Send + Sync + 'static,
+        Fut: std::future::Future<Output = super::readiness::Readiness> + Send + 'static,
+    {
+        self.readiness_check = Some(std::sync::Arc::new(move |state| Box::pin(check(state))));
+        self
     }
 
     /// Sets up all static directories configured in the HTTP section except the fallback one.

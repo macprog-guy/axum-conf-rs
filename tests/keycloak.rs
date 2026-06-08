@@ -46,6 +46,12 @@ impl KeycloakContainer {
         let container_request = keycloak_image
             .with_env_var("KEYCLOAK_ADMIN", admin_user.as_str())
             .with_env_var("KEYCLOAK_ADMIN_PASSWORD", admin_password.as_str())
+            // Trust `X-Forwarded-*` headers so the admin client can present itself
+            // as local (see `admin_client`). Without this, the `master` realm's
+            // `sslRequired=external` policy rejects plain-HTTP admin auth with
+            // `403 "HTTPS required"` when the container perceives the connection as
+            // non-local (e.g. under Docker Desktop on macOS).
+            .with_env_var("KC_PROXY_HEADERS", "xforwarded")
             .with_cmd(["start-dev"]);
 
         let container = container_request.start().await.expect("Keycloak started");
@@ -74,7 +80,23 @@ impl KeycloakContainer {
     }
 
     pub async fn admin_client(&self) -> KeycloakAdmin {
-        let client = reqwest::Client::new();
+        // Keycloak's `master` realm uses `sslRequired=external`: plain HTTP is
+        // accepted only for requests it classifies as local/private. Some Docker
+        // setups (notably Docker Desktop on macOS) make the container perceive the
+        // forwarded connection as non-local, so HTTP admin auth is rejected with
+        // `403 "HTTPS required"`. The container trusts `X-Forwarded-*` headers
+        // (`KC_PROXY_HEADERS=xforwarded`), so presenting `X-Forwarded-For:
+        // 127.0.0.1` makes Keycloak treat the admin request as originating locally.
+        let mut default_headers = reqwest::header::HeaderMap::new();
+        default_headers.insert(
+            "X-Forwarded-For",
+            reqwest::header::HeaderValue::from_static("127.0.0.1"),
+        );
+        let client = reqwest::Client::builder()
+            .default_headers(default_headers)
+            .build()
+            .expect("reqwest client builds");
+
         let admin_token = KeycloakAdminToken::acquire(
             self.url.as_str(),
             &self.admin_user,
@@ -126,6 +148,9 @@ impl KeycloakContainer {
                 enabled: Some(true),
                 realm: Some("test-realm".to_owned()),
                 display_name: Some("test-realm".to_owned()),
+                // Allow plain HTTP to this realm's endpoints: the app reaches
+                // Keycloak over HTTP from a (possibly non-local) host address.
+                ssl_required: Some("none".into()),
                 registration_email_as_username: Some(true),
                 clients: Some(vec![
                     // Being public and accepting direct-access-grants allows us to log in with grant type "password".
@@ -185,6 +210,9 @@ impl KeycloakContainer {
                 enabled: Some(true),
                 realm: Some("test-realm".to_owned()),
                 display_name: Some("test-realm".to_owned()),
+                // Allow plain HTTP to this realm's endpoints: the app reaches
+                // Keycloak over HTTP from a (possibly non-local) host address.
+                ssl_required: Some("none".into()),
                 registration_email_as_username: Some(true),
                 clients: Some(vec![
                     // Public client for Bearer token / direct-access-grants (same as existing)

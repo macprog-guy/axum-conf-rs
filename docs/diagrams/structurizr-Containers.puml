@@ -1,0 +1,47 @@
+@startuml
+title <size:24>Container View: axum-conf</size>\n<size:24>Major crate modules of axum-conf and how they relate to external systems.</size>
+
+set separator none
+left to right direction
+
+<style>
+  root {
+    BackgroundColor: #ffffff
+    FontColor: #444444
+  }
+</style>
+
+!include <C4/C4>
+!include <C4/C4_Context>
+!include <C4/C4_Container>
+
+Person(ApplicationDeveloper, "Application Developer", $descr="Builds production web services by composing routes and TOML configuration on top of axum-conf.", $tags="", $link="")
+System(TokioAxumRuntime, "Tokio / Axum Runtime", $descr="Async runtime and HTTP server hosting the service binary that embeds axum-conf.", $tags="", $link="")
+System(PostgreSQL, "PostgreSQL", $descr="Relational database accessed through an sqlx connection pool.", $tags="", $link="")
+System(KeycloakOIDCProvider, "Keycloak / OIDC Provider", $descr="Identity provider issuing and signing JWTs; backs OIDC discovery, bearer validation and the authorization-code flow.", $tags="", $link="")
+System(AuthenticatingReverseProxy, "Authenticating Reverse Proxy", $descr="oauth2-proxy / Nginx auth_request that performs OIDC and forwards identity via X-Auth-Request-* headers.", $tags="", $link="")
+System(OpenTelemetryCollector, "OpenTelemetry Collector", $descr="Receives distributed traces over OTLP/gRPC.", $tags="", $link="")
+System(Prometheus, "Prometheus", $descr="Scrapes the /metrics endpoint for request counts and latencies.", $tags="", $link="")
+
+System_Boundary("axumconf_boundary", "axum-conf", $tags="") {
+  Container(axumconf.Configuration, "Configuration", $techn="Rust, serde, toml, regex", $descr="Loads config/{RUST_ENV}.toml (or strings/builders), substitutes {{ ENV_VAR }} references and validates HTTP, database, OIDC, logging and middleware sections.", $tags="", $link="")
+  Container(axumconf.CircuitBreaker, "Circuit Breaker", $techn="Rust, dashmap (feature: circuit-breaker)", $descr="Per-target fail-fast resilience (closed/open/half-open state machine) for the database and external HTTP services.", $tags="", $link="")
+  Container(axumconf.OpenAPI, "OpenAPI", $techn="Rust, utoipa, utoipa-scalar (feature: openapi)", $descr="Generates an OpenAPI specification and serves a Scalar API reference UI.", $tags="", $link="")
+  Container(axumconf.FluentRouterMiddlewareEngine, "FluentRouter & Middleware Engine", $techn="Rust, axum, tower, tower-http", $descr="Builder-pattern wrapper around axum::Router that assembles the middleware stack in the correct order, runs the server and handles graceful shutdown.", $tags="", $link="")
+}
+
+Rel(ApplicationDeveloper, axumconf.FluentRouterMiddlewareEngine, "Builds the router & middleware stack with", $techn="Rust API", $tags="", $link="")
+Rel(axumconf.FluentRouterMiddlewareEngine, axumconf.Configuration, "Reads settings from", $techn="", $tags="", $link="")
+Rel(axumconf.FluentRouterMiddlewareEngine, axumconf.CircuitBreaker, "Guards downstream calls via", $techn="", $tags="", $link="")
+Rel(axumconf.FluentRouterMiddlewareEngine, axumconf.OpenAPI, "Mounts spec & docs UI from", $techn="", $tags="", $link="")
+Rel(axumconf.Configuration, PostgreSQL, "Builds connection pool to", $techn="sqlx / TLS", $tags="", $link="")
+Rel(axumconf.CircuitBreaker, PostgreSQL, "Wraps calls to", $techn="", $tags="", $link="")
+Rel(axumconf.FluentRouterMiddlewareEngine, TokioAxumRuntime, "Binds listener & serves on", $techn="tokio", $tags="", $link="")
+Rel(axumconf.FluentRouterMiddlewareEngine, KeycloakOIDCProvider, "Authenticates against", $techn="OIDC / HTTPS", $tags="", $link="")
+Rel(AuthenticatingReverseProxy, axumconf.FluentRouterMiddlewareEngine, "Sets identity headers on", $techn="", $tags="", $link="")
+Rel(axumconf.FluentRouterMiddlewareEngine, OpenTelemetryCollector, "Exports traces to", $techn="OTLP / gRPC", $tags="", $link="")
+Rel(Prometheus, axumconf.FluentRouterMiddlewareEngine, "Scrapes /metrics from", $techn="HTTP", $tags="", $link="")
+
+SHOW_LEGEND(true)
+hide stereotypes
+@enduml

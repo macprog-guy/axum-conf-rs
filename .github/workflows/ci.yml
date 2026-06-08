@@ -54,6 +54,31 @@ jobs:
         env:
           RUST_ENV: test
 
+  test-minimal:
+    needs: msrv
+    name: Test (minimal features)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Cache cargo registry
+        uses: Swatinem/rust-cache@v2
+
+      # Default features = postgres OFF. Exercises the no-database code paths,
+      # including the readiness-hook happy-path tests (200 OK) that are gated
+      # out of the all-features run because /ready needs a live database there.
+      - name: Run library tests (default features)
+        run: cargo test --lib
+        env:
+          RUST_ENV: test
+
   lint:
     needs: msrv
     name: Lint

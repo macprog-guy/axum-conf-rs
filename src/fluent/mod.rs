@@ -32,6 +32,7 @@ mod builder;
 mod control;
 mod features;
 mod observability;
+mod readiness;
 mod request;
 mod router;
 mod shutdown;
@@ -42,6 +43,9 @@ pub use dedup::*;
 
 // Re-export FluentRouter - the main public type
 pub use router::FluentRouter;
+
+// Re-export the application readiness hook types
+pub use readiness::Readiness;
 
 // Re-export shutdown types for public API
 pub use shutdown::{ShutdownNotifier, ShutdownPhase};

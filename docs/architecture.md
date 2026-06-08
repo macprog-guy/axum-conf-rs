@@ -39,6 +39,28 @@ axum-conf wraps [Axum](https://github.com/tokio-rs/axum) with a configuration-dr
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+## C4 Architecture Diagrams
+
+The following [C4 model](https://c4model.com/) diagrams are generated from [`workspace.dsl`](diagrams/workspace.dsl) (run `make diagrams` to regenerate). They progress from a high-level system context down to the internal components of the middleware engine.
+
+### System Context
+
+Who uses axum-conf and the external systems a service built on it integrates with.
+
+![System Context diagram](diagrams/structurizr-SystemContext.svg)
+
+### Containers
+
+The major crate modules of axum-conf — the FluentRouter & middleware engine, configuration, circuit breaker, and OpenAPI — and how they relate to external systems.
+
+![Container diagram](diagrams/structurizr-Containers.svg)
+
+### Components
+
+The internal components of the FluentRouter & middleware engine, mirroring the submodules under `src/fluent`.
+
+![Component diagram](diagrams/structurizr-Components.svg)
+
 ## Core Components
 
 ### Config

@@ -1,6 +1,6 @@
 [package]
 name = "axum-conf"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2024"
 authors = ["Eric Methot <em@ericmethot.com>"]
 description = "A library to simplify the use of Axum, Tokio and Postgres together using configuration. It comes with batteries included and many features can be feature activated."
@@ -104,6 +104,10 @@ name = "with_state"
 path = "examples/with_state.rs"
 
 [[example]]
+name = "readiness_check"
+path = "examples/readiness_check.rs"
+
+[[example]]
 name = "json_api"
 path = "examples/json_api.rs"
 
@@ -177,4 +181,3 @@ concurrency-limit = ["tower/limit"]
 path-normalization = ["tower-http/normalize-path"]
 sensitive-headers = ["tower-http/sensitive-headers"]
 payload-limit = ["tower-http/limit"]
- 

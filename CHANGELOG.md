@@ -7,21 +7,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-08
+
 ### Added
-- OIDC Authorization Code Flow with PKCE (SHA-256), CSRF state, and nonce validation
-- Auto-registered login, callback, and logout routes when `redirect_uri` is configured
+- Pluggable application readiness hook: `FluentRouter::with_readiness_check` registers an app-supplied closure so `/ready` reflects application state (e.g. load shedding when a bounded worker pool is saturated), not just database connectivity. The hook is *composed* with the built-in checks — the endpoint is ready iff the application check returns `Readiness::Ready` **and** the built-in database/circuit-breaker check passes. A `NotReady(msg)` result returns `503 Service Unavailable` with `msg` in the body. New public `Readiness` type; available regardless of the `postgres` feature. See the `readiness_check` example.
+
+## [0.4.1] - 2026-03-25
+
+### Security
+- Resolved 5 `cargo audit` advisories and 1 unmaintained-dependency warning
+
+## [0.4.0] - 2026-03-25
+
+### Changed
+- Replaced the `axum-keycloak-auth` dependency with an in-house Bearer JWT validator: OIDC bearer-only mode now validates `Authorization: Bearer` tokens directly (signature via JWKS, plus issuer/audience/expiry checks)
+
+## [0.3.25] - 2026-03-12
+
+### Added
+- `WithRole`, `AnyRole`, and `AllRoles` extractors for role-based route gating, plus the `role!` and `roles!` helper macros
+
+## [0.3.24] - 2026-03-12
+
+### Added
+- Configurable `roles` field on `AuthenticatedIdentity`
+
+## [0.3.23] - 2026-03-12
+
+### Fixed
+- Pass configured audiences to the OIDC auth code flow ID token verifier
+
+## [0.3.22] - 2026-03-04
+
+### Added
+- Browser login redirect: unauthenticated browser requests can be auto-redirected to the OIDC login route
+- OIDC and Basic Auth can coexist when the OIDC auth code flow is enabled (browser users via OIDC, API clients via Basic Auth/API keys)
+
+## [0.3.21] - 2026-03-04
+
+### Added
+- OIDC Authorization Code Flow with PKCE (SHA-256), CSRF state, and nonce validation, including auto-registered login, callback, and logout routes when `redirect_uri` is configured
 - Session-based token storage with transparent access token refresh
 - Proxy OIDC authentication — reads identity from reverse proxy headers (e.g., oauth2-proxy)
-- `AuthenticatedIdentity` unified extractor for all authentication methods (Basic Auth, OIDC, Proxy OIDC)
+- `AuthenticatedIdentity` unified extractor for all authentication methods (Basic Auth, OIDC, Proxy OIDC); Basic Auth users and API keys carry unified identity fields
+- `setup_tracing_with()` to install a custom tracing layer (e.g. OpenTelemetry, file appenders)
 - Middleware stack expanded to 19 layers (added Proxy OIDC)
 
 ### Changed
 - OIDC middleware uses passthrough mode (`PassthroughMode::Pass`) when auth code flow is enabled, allowing unauthenticated requests to fall through to session-based identity
+- Narrowed default OIDC scopes to `["openid"]`
+- Updated dependencies to latest versions
 
 ### Fixed
-- Shutdown timer now only starts after a shutdown signal is received, preventing premature server termination
-- Static file directories are now automatically set up in `setup_middleware()` (calls `setup_public_files()`, `setup_protected_files()`, and `setup_fallback_files()`)
 - `map_keycloak_to_identity` now handles both `PassthroughMode::Block` (bare `KeycloakToken`) and `PassthroughMode::Pass` (`KeycloakAuthStatus::Success`)
+
+## [0.3.15] - 2026-01-20
+
+### Added
+- Trace-level logging throughout middleware setup
+
+### Documentation
+- Static file serving documentation
+
+## [0.3.14] - 2026-01-15
+
+### Added
+- Generic application configuration: `Config<T>` carries an app-specific config section alongside the framework configuration
+
+## [0.3.12] - 2026-01-05
+
+### Documentation
+- Expanded documentation for the `deduplication` and `rustls` features; expanded README
+
+## [0.3.9] - 2026-01-03
+
+### Fixed
+- Static file directories are now automatically set up in `setup_middleware()` (calls `setup_public_files()`, `setup_protected_files()`, and `setup_fallback_files()`)
 
 ## [0.3.8] - 2026-01-03
 
@@ -99,7 +160,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Kubernetes deployment guides with manifests
 - Troubleshooting guide
 
-[Unreleased]: https://github.com/emethot/axum-conf/compare/v0.3.8...HEAD
+[Unreleased]: https://github.com/emethot/axum-conf/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/emethot/axum-conf/compare/v0.4.1...v0.5.0
+[0.4.1]: https://github.com/emethot/axum-conf/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/emethot/axum-conf/compare/v0.3.25...v0.4.0
+[0.3.25]: https://github.com/emethot/axum-conf/compare/v0.3.24...v0.3.25
+[0.3.24]: https://github.com/emethot/axum-conf/compare/v0.3.23...v0.3.24
+[0.3.23]: https://github.com/emethot/axum-conf/compare/v0.3.22...v0.3.23
+[0.3.22]: https://github.com/emethot/axum-conf/compare/v0.3.21...v0.3.22
+[0.3.21]: https://github.com/emethot/axum-conf/compare/v0.3.15...v0.3.21
+[0.3.15]: https://github.com/emethot/axum-conf/compare/v0.3.14...v0.3.15
+[0.3.14]: https://github.com/emethot/axum-conf/compare/v0.3.12...v0.3.14
+[0.3.12]: https://github.com/emethot/axum-conf/compare/v0.3.9...v0.3.12
+[0.3.9]: https://github.com/emethot/axum-conf/compare/v0.3.8...v0.3.9
 [0.3.8]: https://github.com/emethot/axum-conf/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/emethot/axum-conf/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/emethot/axum-conf/compare/v0.3.5...v0.3.6

@@ -50,6 +50,7 @@
 //! | Feature | Description | Default |
 //! |---------|-------------|---------|
 //! | Health probes | `/live` and `/ready` endpoints | Enabled |
+//! | Readiness hook | App-supplied `/ready` checks via [`FluentRouter::with_readiness_check`] | Available |
 //! | Prometheus metrics | Request counts, latencies at `/metrics` | Enabled |
 //! | Request logging | Structured logs with UUIDv7 correlation IDs | Enabled |
 //! | Rate limiting | Per-IP request throttling | 100 req/sec |
@@ -167,6 +168,50 @@
 //!
 //!     FluentRouter::<AppState>::with_state(config, state)?
 //!         .route("/count", get(count))
+//!         .setup_middleware()
+//!         .await?
+//!         .start()
+//!         .await
+//! }
+//! ```
+//!
+//! ## Application Readiness
+//!
+//! Make `/ready` reflect application state — not just database connectivity — by
+//! registering a check with [`FluentRouter::with_readiness_check`]. The check is
+//! composed with the built-in database / circuit-breaker checks: the endpoint is
+//! ready iff the application check returns [`Readiness::Ready`] *and* the built-in
+//! check passes. Returning [`Readiness::not_ready`] yields `503 Service
+//! Unavailable` with the message in the body — useful for shedding load when a
+//! bounded worker pool is saturated, so a load balancer stops routing to the
+//! instance.
+//!
+//! ```rust,no_run
+//! use axum::routing::post;
+//! use axum_conf::{Config, FluentRouter, Readiness, Result};
+//! use std::sync::Arc;
+//! use tokio::sync::Semaphore;
+//!
+//! #[derive(Clone)]
+//! struct AppState {
+//!     permits: Arc<Semaphore>,
+//! }
+//!
+//! # async fn convert() {}
+//! #[tokio::main]
+//! async fn main() -> Result<()> {
+//!     let config: Config = Config::default();
+//!     let state = AppState { permits: Arc::new(Semaphore::new(8)) };
+//!
+//!     FluentRouter::<AppState>::with_state(config, state)?
+//!         .route("/convert", post(convert))
+//!         .with_readiness_check(|s: AppState| async move {
+//!             if s.permits.available_permits() == 0 {
+//!                 Readiness::not_ready("all conversion permits held")
+//!             } else {
+//!                 Readiness::ready()
+//!             }
+//!         })
 //!         .setup_middleware()
 //!         .await?
 //!         .start()

@@ -30,6 +30,7 @@ mod catch_panic;
 mod config;
 mod interactions;
 mod liveness_readiness;
+mod readiness;
 mod request_id;
 mod static_files;
 mod timeout;

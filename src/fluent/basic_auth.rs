@@ -109,11 +109,13 @@ fn try_basic_auth(
         .split_once(':')
         .ok_or_else(bad_request_response)?;
 
-    // Find matching user and verify password
+    // Find matching user and verify password. Compare username in constant time
+    // too (with non-short-circuiting `&`) so response timing does not reveal
+    // whether a username exists, which would enable username enumeration.
     for user in &config.users {
-        if user.username == username
-            && constant_time_compare(password.as_bytes(), user.password.0.as_bytes())
-        {
+        let username_match = constant_time_compare(username.as_bytes(), user.username.as_bytes());
+        let password_match = constant_time_compare(password.as_bytes(), user.password.0.as_bytes());
+        if username_match & password_match {
             return Ok(Some(AuthenticatedIdentity {
                 method: AuthMethod::BasicAuth,
                 user: username.to_string(),

@@ -325,6 +325,35 @@ where
             Ok(layer) => self.inner = self.inner.layer(layer),
             Err(e) => tracing::warn!(error = %e, "Failed to build HelmetLayer"),
         }
+
+        // Optional HSTS — only meaningful over HTTPS, hence opt-in via config.
+        if let Some(max_age) = self.config.http.hsts_max_age {
+            let value = if self.config.http.hsts_include_subdomains {
+                format!("max-age={max_age}; includeSubDomains")
+            } else {
+                format!("max-age={max_age}")
+            };
+            if let Ok(header_value) = http::HeaderValue::from_str(&value) {
+                self.inner =
+                    self.inner
+                        .layer(tower_http::set_header::SetResponseHeaderLayer::overriding(
+                            http::header::STRICT_TRANSPORT_SECURITY,
+                            header_value,
+                        ));
+            }
+        }
+
+        // Optional Content-Security-Policy, emitted verbatim when configured.
+        if let Some(csp) = &self.config.http.content_security_policy
+            && let Ok(header_value) = http::HeaderValue::from_str(csp)
+        {
+            self.inner =
+                self.inner
+                    .layer(tower_http::set_header::SetResponseHeaderLayer::overriding(
+                        http::header::CONTENT_SECURITY_POLICY,
+                        header_value,
+                    ));
+        }
         self
     }
 

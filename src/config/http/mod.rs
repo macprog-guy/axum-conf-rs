@@ -171,6 +171,21 @@ pub struct HttpConfig {
     #[serde(default = "HttpConfig::default_x_frame_options")]
     pub x_frame_options: HttpXFrameConfig,
 
+    /// HSTS `max-age` in seconds. When set, a `Strict-Transport-Security`
+    /// response header is emitted. Default: unset (disabled). Enable only when
+    /// the service is served over HTTPS (directly or via a TLS-terminating proxy).
+    #[serde(default)]
+    pub hsts_max_age: Option<u64>,
+
+    /// Append `includeSubDomains` to the HSTS header. Defaults to `true`.
+    #[serde(default = "HttpConfig::default_true")]
+    pub hsts_include_subdomains: bool,
+
+    /// `Content-Security-Policy` response header value. When set, it is emitted
+    /// verbatim. Default: unset (no CSP header).
+    #[serde(default)]
+    pub content_security_policy: Option<String>,
+
     /// Configuration for serving static files.
     #[serde(default)]
     pub directories: Vec<StaticDirConfig>,
@@ -300,6 +315,9 @@ impl HttpConfig {
     }
 
     fn default_x_content_type_nosniff() -> bool {
+        true
+    }
+    fn default_true() -> bool {
         true
     }
     fn default_x_frame_options() -> HttpXFrameConfig {
@@ -441,6 +459,9 @@ impl Default for HttpConfig {
             metrics_route: Self::default_metrics_route(),
             x_content_type_nosniff: Self::default_x_content_type_nosniff(),
             x_frame_options: Self::default_x_frame_options(),
+            hsts_max_age: None,
+            hsts_include_subdomains: Self::default_true(),
+            content_security_policy: None,
             default_api_version: Self::default_api_version(),
             directories: Vec::new(),
             #[cfg(feature = "session")]

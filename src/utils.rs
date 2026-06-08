@@ -73,8 +73,8 @@ static HANDLEBAR_REGEXP: LazyLock<Regex> =
 #[derive(Clone, Deserialize, Default, Zeroize, ZeroizeOnDrop)]
 pub struct Sensitive<T: Default + Zeroize>(pub T);
 
-impl Sensitive<String> {
-    /// Creates a new `Sensitive<String>` from a string slice.
+impl From<&str> for Sensitive<String> {
+    /// Creates a `Sensitive<String>` from a string slice.
     ///
     /// # Examples
     ///
@@ -83,7 +83,7 @@ impl Sensitive<String> {
     ///
     /// let password = Sensitive::from("my-secret-password");
     /// ```
-    pub fn from(s: &str) -> Self {
+    fn from(s: &str) -> Self {
         Self(s.to_string())
     }
 }
@@ -156,16 +156,34 @@ impl MakeRequestId for RequestIdGenerator {
     /// Returns `None` only if UUID generation or header value creation fails
     /// (which is extremely rare in practice).
     fn make_request_id<B>(&mut self, req: &Request<B>) -> Option<RequestId> {
-        match req.headers().get("x-request-id") {
-            Some(value) => Some(RequestId::new(value.clone())),
-            None => {
-                let cx = ContextV7::new().with_additional_precision();
-                let uuid = Uuid::new_v7(Timestamp::now(cx));
-                let value = HeaderValue::from_str(&uuid.to_string()).ok()?;
-                Some(RequestId::new(value))
-            }
+        // Preserve a client-supplied id only if it is well-formed. An unvalidated
+        // value flows into logs and trace correlation, so an attacker could
+        // otherwise inject control characters or oversized junk (log injection /
+        // correlation poisoning). Reject anything else and mint a fresh id.
+        if let Some(value) = req.headers().get("x-request-id")
+            && value.to_str().is_ok_and(is_valid_request_id)
+        {
+            return Some(RequestId::new(value.clone()));
         }
+
+        let cx = ContextV7::new().with_additional_precision();
+        let uuid = Uuid::new_v7(Timestamp::now(cx));
+        let value = HeaderValue::from_str(&uuid.to_string()).ok()?;
+        Some(RequestId::new(value))
     }
+}
+
+/// Whether a client-supplied request id is safe to preserve.
+///
+/// Accepts 1..=128 characters limited to ASCII alphanumerics and `-._:` —
+/// enough for UUIDs and common trace-id formats, while excluding whitespace,
+/// control characters, and newlines used in log-injection attacks.
+fn is_valid_request_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b':'))
 }
 
 /// Replaces handlebars-style placeholders with environment variable values.
@@ -331,6 +349,21 @@ impl From<u32> for ApiVersion {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    #[test]
+    fn test_is_valid_request_id() {
+        // UUID and common trace-id shapes are accepted.
+        assert!(is_valid_request_id("018f9c3e-7b2a-7e51-9d3a-1c2b3d4e5f60"));
+        assert!(is_valid_request_id("trace_id-123.4:5"));
+        assert!(is_valid_request_id(&"a".repeat(128)));
+
+        // Rejected: empty, too long, whitespace/control chars, log-injection.
+        assert!(!is_valid_request_id(""));
+        assert!(!is_valid_request_id(&"a".repeat(129)));
+        assert!(!is_valid_request_id("has space"));
+        assert!(!is_valid_request_id("line\nbreak"));
+        assert!(!is_valid_request_id("tab\there"));
+    }
 
     // ========================================================================
     // Property-based tests for replace_handlebars_with_env

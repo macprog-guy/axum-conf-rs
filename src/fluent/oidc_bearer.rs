@@ -59,7 +59,9 @@ impl JwksProvider {
         audiences: Vec<String>,
     ) -> Result<Arc<Self>> {
         let http_client = openidconnect::reqwest::Client::new();
-        let jwks = Self::fetch_jwks(&http_client, &jwks_url).await?;
+        // Retry the initial fetch with bounded exponential backoff so a single
+        // transient network hiccup at startup doesn't fail the whole service.
+        let jwks = Self::fetch_jwks_with_retry(&http_client, &jwks_url).await?;
         let keys = Self::build_keys(&jwks, &issuer, &audiences);
 
         let provider = Arc::new(Self {
@@ -145,6 +147,31 @@ impl JwksProvider {
             );
         }
         map
+    }
+
+    /// Fetches the JWKS, retrying transient failures with exponential backoff
+    /// (3 attempts: ~100ms, 200ms, then give up).
+    async fn fetch_jwks_with_retry(
+        client: &openidconnect::reqwest::Client,
+        url: &str,
+    ) -> Result<JwkSet> {
+        const MAX_ATTEMPTS: u32 = 3;
+        let mut delay = std::time::Duration::from_millis(100);
+        let mut last_err = None;
+        for attempt in 1..=MAX_ATTEMPTS {
+            match Self::fetch_jwks(client, url).await {
+                Ok(jwks) => return Ok(jwks),
+                Err(e) => {
+                    tracing::warn!(attempt, max = MAX_ATTEMPTS, error = %e, "JWKS fetch failed");
+                    last_err = Some(e);
+                    if attempt < MAX_ATTEMPTS {
+                        tokio::time::sleep(delay).await;
+                        delay *= 2;
+                    }
+                }
+            }
+        }
+        Err(last_err.unwrap_or_else(|| Error::config("JWKS fetch failed")))
     }
 
     async fn fetch_jwks(client: &openidconnect::reqwest::Client, url: &str) -> Result<JwkSet> {

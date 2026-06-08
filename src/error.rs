@@ -209,6 +209,21 @@ impl Error {
         )
     }
 
+    /// Returns whether this error is likely transient and worth retrying.
+    ///
+    /// `true` for failures that are typically temporary (I/O, database
+    /// connectivity, a circuit-breaker call that failed downstream); `false`
+    /// for deterministic failures (authentication, invalid input,
+    /// configuration, TLS setup, an open circuit, or an internal bug) where a
+    /// retry would not help. Lets callers implement retry/backoff without
+    /// downcasting the opaque source.
+    pub fn is_transient(&self) -> bool {
+        matches!(
+            self.kind,
+            ErrorKind::Io | ErrorKind::Database | ErrorKind::CircuitBreakerFailed
+        )
+    }
+
     /// Converts the error into a structured error response.
     ///
     /// For internal error kinds the message is replaced with a generic string so
@@ -435,6 +450,18 @@ impl ErrorResponse {
 mod tests {
     use super::*;
     use std::error::Error as StdError;
+
+    #[test]
+    fn test_is_transient() {
+        // Transient: worth retrying.
+        assert!(Error::io("connection reset").is_transient());
+        assert!(Error::database("pool timeout").is_transient());
+        // Deterministic: retrying won't help.
+        assert!(!Error::authentication("bad token").is_transient());
+        assert!(!Error::invalid_input("missing field").is_transient());
+        assert!(!Error::config("bad value").is_transient());
+        assert!(!Error::internal("bug").is_transient());
+    }
 
     // ========================================================================
     // ErrorKind tests

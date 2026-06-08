@@ -11,10 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Pluggable application readiness hook: `FluentRouter::with_readiness_check` registers an app-supplied closure so `/ready` reflects application state (e.g. load shedding when a bounded worker pool is saturated), not just database connectivity. The hook is *composed* with the built-in checks — the endpoint is ready iff the application check returns `Readiness::Ready` **and** the built-in database/circuit-breaker check passes. A `NotReady(msg)` result returns `503 Service Unavailable` with `msg` in the body. New public `Readiness` type; available regardless of the `postgres` feature. See the `readiness_check` example.
+- Optional `Strict-Transport-Security` and `Content-Security-Policy` response headers via new `[http]` options `hsts_max_age`, `hsts_include_subdomains` (default `true`), and `content_security_policy`. Both are off by default.
+- `Error::is_transient()` to let callers distinguish retryable failures (I/O, database, circuit-breaker call) from deterministic ones without downcasting.
 
 ### Security
 - HTTP error responses no longer leak internal detail: errors of internal kinds (database, configuration, TLS, I/O, internal) now return a generic `"An internal error occurred"` body while the full detail is still logged server-side. Client-facing kinds (authentication, invalid input, circuit-breaker) are unchanged.
 - Session cookies are now `Secure` and `SameSite=Strict` by default. New `[http]` options `session_secure_cookie` (default `true`) and `session_same_site` (default `strict`) make this configurable; a warning is logged if `session_secure_cookie = false` while not bound to loopback.
+- Basic Auth now compares the username in constant time (alongside the password), closing a timing channel that allowed username enumeration.
+- Client-supplied `x-request-id` headers are validated (charset and length) before being preserved; malformed values are replaced with a fresh UUID to prevent log injection / correlation poisoning.
 
 ### Changed
 - **Breaking (defaults):** `bind_addr` now defaults to `"0.0.0.0"` (was `"127.0.0.1"`) so services are reachable by Kubernetes probes and other pods; a warning is logged when bound to loopback. `request_timeout` now defaults to `60s` (was unset) to bound hung handlers — set it empty in TOML to disable.
@@ -24,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OpenTelemetry traces are now exported correctly: the OTel layer is composed with the active tracing subscriber instead of a separate, disconnected registry, and buffered spans are flushed on graceful shutdown. When OpenTelemetry is enabled, `setup_opentelemetry()` initializes logging — do not also call `Config::setup_tracing()`.
 - Static fallback directories are wired once (by `setup_middleware`) instead of also during `with_state`, removing redundant work and a `merge`-ordering footgun.
 - Eliminated permanent per-call memory leaks (`Box::leak`) in the metrics and OpenAPI route setup.
+- The initial JWKS fetch retries with bounded exponential backoff (3 attempts) so a transient network hiccup at startup no longer fails the whole service.
 
 ### Performance
 - Bearer JWT validation no longer rebuilds the decoding key and validation parameters per request; they are cached per-`kid` when the JWKS is loaded/refreshed.

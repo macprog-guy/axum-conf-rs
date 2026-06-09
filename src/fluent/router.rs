@@ -1,7 +1,11 @@
 //! Core FluentRouter struct and initialization methods.
 
 use tokio_util::sync::CancellationToken;
-#[cfg(any(feature = "rate-limiting", feature = "deduplication"))]
+#[cfg(any(
+    feature = "rate-limiting",
+    feature = "deduplication",
+    feature = "session-postgres"
+))]
 use tokio_util::task::AbortOnDropHandle;
 
 use {
@@ -70,6 +74,8 @@ pub struct FluentRouter<State = ()> {
     pub(crate) governor_handle: Option<AbortOnDropHandle<()>>,
     #[cfg(feature = "deduplication")]
     pub(crate) dedup_cleanup_handle: Option<AbortOnDropHandle<()>>,
+    #[cfg(feature = "session-postgres")]
+    pub(crate) session_cleanup_handle: Option<AbortOnDropHandle<()>>,
     pub(crate) panic_channel: Option<tokio::sync::mpsc::Sender<String>>,
     pub(crate) shutdown_notifier: ShutdownNotifier,
     /// Optional application-supplied readiness check, composed with the built-in
@@ -196,6 +202,8 @@ where
             governor_handle: None,
             #[cfg(feature = "deduplication")]
             dedup_cleanup_handle: None,
+            #[cfg(feature = "session-postgres")]
+            session_cleanup_handle: None,
             panic_channel: None,
             shutdown_notifier: ShutdownNotifier::default(),
             readiness_check: None,

@@ -12,6 +12,10 @@ axum-conf = { version = "0.3", features = ["session"] }
 axum-conf = { version = "0.3", features = ["keycloak"] }
 ```
 
+The `session` feature uses an in-memory store. For a shared store across
+replicas, enable `session-postgres` or `session-redis` instead — see
+[Session Storage](#session-storage) below.
+
 ## Basic Usage
 
 ```rust
@@ -292,11 +296,76 @@ async fn save_user_data(
 
 ## Session Storage
 
-By default, sessions are stored in-memory. For production with multiple replicas, consider:
+By default, sessions are stored **in-memory**. This is per-process: each replica
+keeps its own sessions, so a request routed to a different pod won't see them.
+The library logs a warning when the in-memory store is used while bound to a
+non-loopback address, since that usually means a multi-replica deployment.
 
-1. **Sticky sessions** - Route same user to same pod
-2. **External session store** - Redis, PostgreSQL (requires custom setup)
-3. **Stateless tokens** - Use JWT claims instead of sessions
+For production with multiple replicas, select a shared backend via
+`[http.session_store]`:
+
+```toml
+[http.session_store]
+type = "memory"                       # default — per-process, no shared state
+
+# PostgreSQL — requires the `session-postgres` feature.
+# Reuses the connection pool from [database]; creates a `tower_sessions` table
+# on startup and runs a background sweep to purge expired rows.
+# type = "postgres"
+
+# Redis — requires the `session-redis` feature. Relies on Redis key expiry,
+# so no background sweep is needed.
+# type = "redis"
+# url  = "redis://127.0.0.1:6379"
+```
+
+Enable the matching feature in `Cargo.toml`:
+
+```toml
+axum-conf = { version = "0.3", features = ["session-postgres"] }
+# or
+axum-conf = { version = "0.3", features = ["session-redis"] }
+```
+
+Both `session-postgres` and `session-redis` imply `session`. The Postgres store
+additionally requires the `postgres` feature (pulled in automatically) and a
+configured `[database]` section.
+
+### Custom Stores
+
+For a backend the library doesn't ship (e.g. Moka, DynamoDB, or your own),
+implement `tower_sessions::SessionStore` and install it with
+`FluentRouter::with_session_store`. This bypasses `[http.session_store]` while
+still honoring the `session_*` cookie settings:
+
+```rust
+let router = FluentRouter::without_state(config)?
+    .with_session_store(my_store);
+```
+
+> **Security note:** Identity is rebuilt from the stored ID token's claims on
+> each request *without* re-verifying the signature (it was verified at callback
+> time). An external store (Postgres/Redis/custom) is therefore trusted for
+> integrity — ensure the backend can't be tampered with.
+
+### Cookie Attributes
+
+Cookie attributes apply to every store and come from `[http]`:
+
+```toml
+[http]
+session_secure_cookie = true          # Secure attribute (default: true)
+session_same_site = "strict"          # "strict" | "lax" | "none" (default: "strict")
+```
+
+Sessions expire after 1 hour of inactivity.
+
+### Alternatives
+
+If you'd rather avoid server-side session state entirely:
+
+1. **Sticky sessions** - Route the same user to the same pod (in-memory store)
+2. **Stateless tokens** - Use JWT claims instead of sessions
 
 ## Security Considerations
 

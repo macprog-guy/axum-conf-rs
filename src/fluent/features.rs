@@ -50,24 +50,33 @@ impl<State> FluentRouter<State>
 where
     State: Clone + Send + Sync + 'static,
 {
-    /// Sets up cookie-based session handling using an in-memory store.
+    /// Sets up cookie-based session handling using the configured store.
+    ///
+    /// The backend is selected by `config.http.session_store`
+    /// ([`SessionStoreConfig`](crate::SessionStoreConfig)): in-memory (default),
+    /// PostgreSQL (`session-postgres` feature, reusing the configured pool), or
+    /// Redis (`session-redis` feature). For an arbitrary `tower_sessions`
+    /// backend, use [`Self::with_session_store`] instead.
     ///
     /// The `Secure` and `SameSite` cookie attributes are taken from
     /// `config.http.session_secure_cookie` (default `true`) and
     /// `config.http.session_same_site` (default `Strict`).
     ///
+    /// # Errors
+    ///
+    /// Returns an error if the chosen backend cannot be initialized (e.g. the
+    /// Postgres table migration fails, or the Redis connection cannot be
+    /// established).
+    ///
     /// # Security note
     ///
-    /// Sessions store the OIDC PKCE verifier, CSRF state, nonce, and tokens. The
-    /// in-memory store keeps these in-process, so they cannot be tampered with
-    /// without code execution. Identity is rebuilt from the stored ID token's
-    /// claims on each request *without* re-verifying its signature (it was
-    /// verified at callback time). If you replace the in-memory store with a
-    /// shared/external backend, ensure that backend's integrity, since claims are
-    /// trusted as stored.
+    /// Sessions store the OIDC PKCE verifier, CSRF state, nonce, and tokens.
+    /// Identity is rebuilt from the stored ID token's claims on each request
+    /// *without* re-verifying its signature (it was verified at callback time),
+    /// so an external store (Postgres/Redis) must be trusted for integrity since
+    /// stored claims are taken at face value.
     #[cfg(feature = "session")]
-    #[must_use]
-    pub fn setup_session_handling(mut self) -> Self {
+    pub async fn setup_session_handling(mut self) -> crate::Result<Self> {
         let secure = self.config.http.session_secure_cookie;
         let same_site: SameSite = self.config.http.session_same_site.into();
 
@@ -80,14 +89,102 @@ where
             );
         }
 
-        let session_store = MemoryStore::default();
-        let session_layer = SessionManagerLayer::new(session_store)
+        match &self.config.http.session_store {
+            crate::SessionStoreConfig::Memory => {
+                tracing::trace!(
+                    secure,
+                    ?same_site,
+                    "Session middleware enabled (memory store)"
+                );
+                self = self.apply_session_layer(MemoryStore::default(), secure, same_site);
+            }
+            #[cfg(feature = "session-postgres")]
+            crate::SessionStoreConfig::Postgres => {
+                use super::session_store::PostgresSessionStore;
+                let store = PostgresSessionStore::new(self.db_pool.clone());
+                store.migrate().await.map_err(|e| {
+                    crate::Error::database(format!("session store migration failed: {e}"))
+                })?;
+                // Periodically purge expired rows; aborts on drop with the router.
+                let cleanup = store.clone();
+                self.session_cleanup_handle = Some(tokio_util::task::AbortOnDropHandle::new(
+                    tokio::spawn(async move {
+                        let mut interval =
+                            tokio::time::interval(std::time::Duration::from_secs(60));
+                        interval.tick().await; // first tick is immediate; skip
+                        loop {
+                            interval.tick().await;
+                            if let Err(e) = cleanup.delete_expired().await {
+                                tracing::warn!(error = %e, "session expiry cleanup failed");
+                            }
+                        }
+                    }),
+                ));
+                tracing::trace!(
+                    secure,
+                    ?same_site,
+                    "Session middleware enabled (postgres store)"
+                );
+                self = self.apply_session_layer(store, secure, same_site);
+            }
+            #[cfg(feature = "session-redis")]
+            crate::SessionStoreConfig::Redis { url } => {
+                use super::session_store::RedisSessionStore;
+                use fred::prelude::*;
+                let config = Config::from_url(url)
+                    .map_err(|e| crate::Error::config(format!("invalid redis url: {e}")))?;
+                let pool = Pool::new(config, None, None, None, 6)
+                    .map_err(|e| crate::Error::config(format!("redis pool init failed: {e}")))?;
+                pool.connect();
+                pool.wait_for_connect()
+                    .await
+                    .map_err(|e| crate::Error::config(format!("redis connect failed: {e}")))?;
+                tracing::trace!(
+                    secure,
+                    ?same_site,
+                    "Session middleware enabled (redis store)"
+                );
+                self = self.apply_session_layer(RedisSessionStore::new(pool), secure, same_site);
+            }
+        }
+        Ok(self)
+    }
+
+    /// Applies the session-manager layer for the given store, honoring the
+    /// configured cookie attributes.
+    #[cfg(feature = "session")]
+    fn apply_session_layer<St>(mut self, store: St, secure: bool, same_site: SameSite) -> Self
+    where
+        St: tower_sessions::SessionStore + Clone,
+    {
+        let layer = SessionManagerLayer::new(store)
             .with_secure(secure)
             .with_same_site(same_site)
             .with_expiry(Expiry::OnInactivity(CookieDuration::seconds(3600)));
-        self.inner = self.inner.layer(session_layer);
-        tracing::trace!(secure, ?same_site, "Session middleware enabled");
+        self.inner = self.inner.layer(layer);
         self
+    }
+
+    /// Installs session handling backed by a caller-supplied `tower_sessions`
+    /// store, bypassing [`SessionStoreConfig`](crate::SessionStoreConfig).
+    ///
+    /// Use this for backends the library does not provide built-in (e.g. a
+    /// Moka, DynamoDB, or custom store). Cookie attributes still come from the
+    /// `session_*` config fields.
+    ///
+    /// ```rust,ignore
+    /// let router = FluentRouter::without_state(config)?
+    ///     .with_session_store(my_store);
+    /// ```
+    #[cfg(feature = "session")]
+    #[must_use]
+    pub fn with_session_store<St>(self, store: St) -> Self
+    where
+        St: tower_sessions::SessionStore + Clone,
+    {
+        let secure = self.config.http.session_secure_cookie;
+        let same_site: SameSite = self.config.http.session_same_site.into();
+        self.apply_session_layer(store, secure, same_site)
     }
 
     /// Sets up path normalization middleware.

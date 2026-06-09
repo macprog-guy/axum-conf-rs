@@ -24,6 +24,8 @@ mod oidc_bearer;
 #[cfg(feature = "keycloak")]
 mod oidc_flow;
 mod proxy_oidc;
+#[cfg(any(feature = "session-postgres", feature = "session-redis"))]
+mod session_store;
 mod user_span;
 
 // New submodules containing split implementation

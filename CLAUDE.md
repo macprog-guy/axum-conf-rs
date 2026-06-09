@@ -47,7 +47,9 @@ The library uses feature flags to enable optional functionality:
 ### Core Features
 - `postgres` - PostgreSQL with connection pooling (enables `rustls`)
 - `keycloak` - OIDC/Keycloak authentication (enables `session`)
-- `session` - Cookie-based session management
+- `session` - Cookie-based session management (in-memory store)
+- `session-postgres` - PostgreSQL-backed session store, reusing the `[database]` pool (enables `session` + `postgres`)
+- `session-redis` - Redis-backed session store (enables `session`)
 - `opentelemetry` - Distributed tracing
 - `rustls` - TLS support
 - `basic-auth` - HTTP Basic Auth and API key authentication

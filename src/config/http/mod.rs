@@ -77,6 +77,41 @@ pub enum SameSiteConfig {
     None,
 }
 
+/// Backend used to persist sessions.
+///
+/// The default in-memory store is per-process and therefore unsuitable for
+/// multi-replica deployments (each replica would have its own sessions). Use
+/// `Postgres` or `Redis` for those, or supply a custom store via
+/// [`FluentRouter::with_session_store`](crate::FluentRouter::with_session_store).
+///
+/// In TOML:
+/// ```toml
+/// [http.session_store]
+/// type = "memory"                       # default
+/// # type = "postgres"                   # requires the `session-postgres` feature; reuses [database]
+/// # type = "redis"                      # requires the `session-redis` feature
+/// # url  = "redis://127.0.0.1:6379"
+/// ```
+#[cfg(feature = "session")]
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(tag = "type", rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum SessionStoreConfig {
+    /// In-memory store (per-process). Zero-config; for local dev / single replica.
+    #[default]
+    Memory,
+    /// PostgreSQL-backed store reusing the configured `[database]` pool.
+    /// Requires the `session-postgres` feature.
+    #[cfg(feature = "session-postgres")]
+    Postgres,
+    /// Redis-backed store. Requires the `session-redis` feature.
+    #[cfg(feature = "session-redis")]
+    Redis {
+        /// Redis connection URL, e.g. `redis://127.0.0.1:6379`.
+        url: String,
+    },
+}
+
 ///
 /// Configuration for the HTTP server
 ///
@@ -203,6 +238,13 @@ pub struct HttpConfig {
     #[cfg(feature = "session")]
     #[serde(default)]
     pub session_same_site: SameSiteConfig,
+
+    /// Session store backend. Defaults to in-memory (per-process). Use
+    /// `[http.session_store] type = "postgres"|"redis"` for multi-replica
+    /// deployments.
+    #[cfg(feature = "session")]
+    #[serde(default)]
+    pub session_store: SessionStoreConfig,
 
     /// OIDC authentication configuration.
     /// Only included if the "keycloak" feature is enabled.
@@ -429,6 +471,19 @@ impl HttpConfig {
             middleware_config.validate()?;
         }
 
+        // Warn when the per-process in-memory session store is used on a
+        // non-loopback bind: sessions won't be shared across replicas.
+        #[cfg(feature = "session")]
+        if matches!(self.session_store, SessionStoreConfig::Memory) && !self.bind_addr_is_loopback()
+        {
+            tracing::warn!(
+                "Using the in-memory session store while not bound to loopback. Sessions are \
+                 per-process and will not be shared across replicas; configure \
+                 [http.session_store] with type = \"postgres\" or \"redis\" for multi-replica \
+                 deployments."
+            );
+        }
+
         // Warn if CORS is not explicitly configured (will use permissive defaults)
         if self.cors.is_none() {
             tracing::warn!(
@@ -468,6 +523,8 @@ impl Default for HttpConfig {
             session_secure_cookie: Self::default_session_secure_cookie(),
             #[cfg(feature = "session")]
             session_same_site: SameSiteConfig::default(),
+            #[cfg(feature = "session")]
+            session_store: SessionStoreConfig::default(),
             #[cfg(feature = "keycloak")]
             oidc: None,
             #[cfg(feature = "basic-auth")]

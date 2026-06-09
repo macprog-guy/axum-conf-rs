@@ -168,7 +168,7 @@ where
         // Session handling must wrap auth middleware so sessions are established
         // before session_to_identity middleware reads them.
         #[cfg(feature = "session")]
-        let router = router.setup_session_handling();
+        let router = router.setup_session_handling().await?;
 
         let router = router
             .setup_deduplication() // 2. Deduplication

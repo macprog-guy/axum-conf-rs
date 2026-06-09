@@ -53,6 +53,26 @@ x_content_type_nosniff = true         # X-Content-Type-Options: nosniff (default
 x_frame_options = "DENY"              # X-Frame-Options (default: "DENY")
                                       # Options: "DENY", "SAMEORIGIN", or URL
 
+# Session cookies (requires 'session' feature)
+session_secure_cookie = true          # Secure cookie attribute (default: true)
+session_same_site = "strict"          # "strict" | "lax" | "none" (default: "strict")
+
+# =============================================================================
+# Session Store (requires 'session' feature)
+# =============================================================================
+# Selects where sessions are persisted. The default in-memory store is
+# per-process, so use postgres or redis for multi-replica deployments.
+[http.session_store]
+type = "memory"                       # default — per-process, no shared state
+
+# PostgreSQL store — requires the 'session-postgres' feature.
+# Reuses the [database] pool; no extra connection settings here.
+# type = "postgres"
+
+# Redis store — requires the 'session-redis' feature.
+# type = "redis"
+# url  = "redis://127.0.0.1:6379"
+
 # =============================================================================
 # CORS Configuration
 # =============================================================================

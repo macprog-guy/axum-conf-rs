@@ -1,4 +1,4 @@
-#![cfg(feature = "postgres")]
+#![cfg(feature = "session")]
 
 use crate::{Config, FluentRouter, HttpMiddleware};
 use axum::{
@@ -23,7 +23,6 @@ async fn session_handler(
 }
 
 #[tokio::test]
-#[cfg(feature = "session")]
 async fn test_memory_session_basic() {
     // Create config with memory session (default)
     let config = Config::new().with_excluded_middlewares(vec![HttpMiddleware::RateLimiting]); // Disable rate limiting for tests (requires ConnectInfo which isn't available in oneshot tests)
@@ -34,6 +33,8 @@ async fn test_memory_session_basic() {
         .unwrap()
         .route("/counter", get(session_handler))
         .setup_session_handling()
+        .await
+        .unwrap()
         .into_inner();
 
     // First request - should create a session and return counter=1

@@ -113,7 +113,9 @@ Enable optional capabilities by category:
 | `postgres` | PostgreSQL connection pooling with sqlx |
 | `keycloak` | OIDC/JWT authentication via Keycloak (Bearer-only and Authorization Code Flow) |
 | `basic-auth` | HTTP Basic Auth and API key authentication |
-| `session` | Cookie-based session management |
+| `session` | Cookie-based session management (in-memory store) |
+| `session-postgres` | PostgreSQL-backed session store (reuses the `[database]` pool) |
+| `session-redis` | Redis-backed session store |
 | `opentelemetry` | Distributed tracing with OTLP export |
 | `rustls` | TLS support (auto-enabled by `postgres`) |
 | `circuit-breaker` | Per-target circuit breaker for external services |
@@ -156,7 +158,7 @@ Most features work together, with one important exception:
 | `keycloak` | All except `basic-auth` | Automatically enables `session` |
 | `basic-auth` | All except `keycloak` | Cannot be used with OIDC |
 | `postgres` | All features | Independent database layer |
-| `session` | All features | Required by `keycloak` |
+| `session` | All features | Required by `keycloak`; `session-postgres`/`session-redis` swap the store backend |
 | `opentelemetry` | All features | Independent tracing layer |
 | Proxy OIDC | All features | No feature flag; configured via `[http.proxy_oidc]` |
 

@@ -129,7 +129,7 @@ Serve files that require authentication (requires `keycloak` feature):
 
 ```toml
 [dependencies]
-axum-conf = { version = "0.3", features = ["keycloak"] }
+axum-conf = { version = "0.5", features = ["keycloak"] }
 ```
 
 ```toml

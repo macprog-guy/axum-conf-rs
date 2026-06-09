@@ -7,7 +7,7 @@ The `basic-auth` feature adds HTTP Basic Authentication and API key authenticati
 ```toml
 # Cargo.toml
 [dependencies]
-axum-conf = { version = "0.3", features = ["basic-auth"] }
+axum-conf = { version = "0.5", features = ["basic-auth"] }
 ```
 
 ## Configuration

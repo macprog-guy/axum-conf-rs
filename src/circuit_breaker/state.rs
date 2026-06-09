@@ -79,6 +79,20 @@ impl CircuitBreakerState {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// Test-only clock seam: backdate `last_failure_time` so the reset timeout is
+    /// considered elapsed. This lets the `Open → HalfOpen` transition be exercised
+    /// deterministically and instantly, instead of sleeping on the wall clock
+    /// (the breaker uses `std::time::Instant`, which `tokio::time::pause` cannot
+    /// control). The circuit must be `Open` for this to be meaningful.
+    #[cfg(test)]
+    fn force_reset_timeout_elapsed(&self) {
+        let mut g = self.lock();
+        let backdated = std::time::Instant::now()
+            .checked_sub(self.config.reset_timeout + std::time::Duration::from_millis(50))
+            .expect("test clock backdate underflowed the monotonic epoch");
+        g.last_failure_time = Some(backdated);
+    }
+
     /// Check if a request should be allowed through the circuit breaker.
     ///
     /// Returns `true` if the request should proceed, `false` if it should be rejected.
@@ -271,8 +285,8 @@ mod tests {
         assert_eq!(cb.current_state(), CircuitState::Closed);
     }
 
-    #[tokio::test]
-    async fn test_circuit_transitions_to_half_open() {
+    #[test]
+    fn test_circuit_transitions_to_half_open() {
         let cb = CircuitBreakerState::new(test_config());
 
         // Trip the circuit
@@ -281,23 +295,26 @@ mod tests {
         }
         assert_eq!(cb.current_state(), CircuitState::Open);
 
-        // Wait for reset timeout
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        // Before the reset timeout elapses, requests are still rejected.
+        assert!(!cb.should_allow());
+
+        // Deterministically elapse the reset timeout (no wall-clock sleep).
+        cb.force_reset_timeout_elapsed();
 
         // Should allow probe request and transition to half-open
         assert!(cb.should_allow());
         assert_eq!(cb.current_state(), CircuitState::HalfOpen);
     }
 
-    #[tokio::test]
-    async fn test_circuit_closes_after_success_threshold() {
+    #[test]
+    fn test_circuit_closes_after_success_threshold() {
         let cb = CircuitBreakerState::new(test_config());
 
-        // Trip and wait for half-open
+        // Trip and elapse the reset timeout
         for _ in 0..3 {
             cb.record_failure();
         }
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        cb.force_reset_timeout_elapsed();
 
         // Trigger transition to half-open
         assert!(cb.should_allow());
@@ -311,15 +328,15 @@ mod tests {
         assert_eq!(cb.current_state(), CircuitState::Closed);
     }
 
-    #[tokio::test]
-    async fn test_failure_in_half_open_reopens_circuit() {
+    #[test]
+    fn test_failure_in_half_open_reopens_circuit() {
         let cb = CircuitBreakerState::new(test_config());
 
-        // Trip and wait for half-open
+        // Trip and elapse the reset timeout
         for _ in 0..3 {
             cb.record_failure();
         }
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        cb.force_reset_timeout_elapsed();
 
         // Trigger transition to half-open
         assert!(cb.should_allow());

@@ -46,10 +46,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # No RUST_ENV: the test suite is written against the built-in default
+      # config. Setting RUST_ENV would make `Config::new()` load `config/*.toml`
+      # and diverge from those defaults (the env-name → file resolution itself is
+      # covered deterministically by `from_toml_file` unit tests).
       - name: Run tests
         run: cargo test ${{ matrix.test-args }}
-        env:
-          RUST_ENV: test
 
   test-minimal:
     needs: msrv
@@ -64,8 +66,6 @@ jobs:
       # out of the all-features run because /ready needs a live database there.
       - name: Run library tests (default features)
         run: cargo test --lib
-        env:
-          RUST_ENV: test
 
   features:
     needs: msrv
@@ -74,6 +74,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@v2
         with:
@@ -82,6 +84,31 @@ jobs:
       # feature-gating bugs that the all-features and default builds miss.
       - name: Check each feature
         run: cargo hack check --each-feature --no-dev-deps
+      # Lint each feature in isolation so `-Dwarnings` covers per-feature cfg paths,
+      # not just the all-features build.
+      - name: Clippy each feature
+        run: cargo hack clippy --each-feature --no-dev-deps -- -D warnings
+      # Bounded pairwise check: catches cfg bugs that only manifest when two
+      # features combine (e.g. keycloak+basic-auth, session-postgres+session-redis).
+      # `full`/`production` are excluded because they enable everything, making the
+      # powerset redundant and explosive.
+      - name: Check feature pairs
+        run: cargo hack check --feature-powerset --depth 2 --no-dev-deps --exclude-features full,production
+
+  machete:
+    needs: msrv
+    name: Unused dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-machete
+      # Fails if a declared dependency is never referenced (prevents dead deps
+      # like the removed prometheus/axum-metrics from creeping back in).
+      - name: Check for unused dependencies
+        run: cargo machete
 
   lint:
     needs: msrv
@@ -95,8 +122,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Check formatting
         run: cargo fmt --all -- --check
-      - name: Run Clippy
+      - name: Run Clippy (all features)
         run: cargo clippy --all-targets --all-features -- -D warnings
+      # `default = []`, so the all-features run never lints the default/no-feature
+      # code paths. Lint them explicitly so `-Dwarnings` covers every cfg path.
+      - name: Run Clippy (no default features)
+        run: cargo clippy --all-targets --no-default-features -- -D warnings
 
   deny:
     needs: msrv
@@ -121,11 +152,13 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
-      - name: Generate coverage (lib, all features)
-        run: cargo llvm-cov --all-features --lib --lcov --output-path lcov.info
-        env:
-          RUST_ENV: test
+      # Covers lib + integration tests (Docker is available on ubuntu runners) and
+      # *enforces* a line-coverage floor so coverage can't silently regress. Raise
+      # `--fail-under-lines` over time to ratchet quality upward.
+      - name: Generate and gate coverage (all features)
+        run: cargo llvm-cov --all-features --lcov --output-path lcov.info --fail-under-lines 60
       - name: Upload coverage artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: lcov
@@ -143,3 +176,24 @@ jobs:
         run: cargo doc --all-features --no-deps
         env:
           RUSTDOCFLAGS: -Dwarnings
+
+  release-consistency:
+    needs: msrv
+    name: Release consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Guard against publishing a version whose CHANGELOG entry is missing, and
+      # ensure the package actually publishes cleanly.
+      - name: Check Cargo.toml version has a CHANGELOG entry
+        run: |
+          version="$(cargo metadata --no-deps --format-version 1 | grep -o '"version":"[^"]*"' | head -1 | cut -d'"' -f4)"
+          echo "Crate version: $version"
+          if ! grep -q "## \[$version\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [$version]' section for the current Cargo.toml version"
+            exit 1
+          fi
+      - name: Verify the package publishes cleanly
+        run: cargo publish --dry-run --all-features

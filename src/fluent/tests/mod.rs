@@ -62,15 +62,18 @@ pub(crate) fn create_base_config() -> Config {
         .expect("Failed to parse test config TOML")
 }
 
-/// Creates a simpler test configuration programmatically using defaults.
-/// Useful when you only need minimal configuration.
+/// Creates a simpler test configuration using the built-in defaults.
+///
+/// Parses an empty TOML document so the result is the all-defaults config
+/// **without** reading `RUST_ENV` / a config file — keeping tests deterministic
+/// regardless of the ambient environment.
 #[allow(dead_code)]
 pub(crate) fn create_test_config() -> Config {
-    #[cfg(not(feature = "postgres"))]
-    let config = Config::new();
+    let config =
+        Config::<()>::from_toml("").expect("empty TOML should yield an all-defaults config");
 
     #[cfg(feature = "postgres")]
-    let config = Config::new().with_pg_url("postgres://test:test@localhost:5432/test");
+    let config = config.with_pg_url("postgres://test:test@localhost:5432/test");
 
     config
 }

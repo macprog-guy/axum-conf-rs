@@ -19,6 +19,8 @@ use axum_conf::{Config, FluentRouter, HttpMiddleware};
 use tower::ServiceExt;
 use tower_sessions::Session;
 
+mod common;
+
 /// Handler that increments a counter held in the session, exercising the
 /// store's load → save round-trip on every call.
 async fn session_handler(session: Session) -> Result<String, (StatusCode, String)> {
@@ -76,6 +78,9 @@ async fn counter_request(
 #[cfg(feature = "session-postgres")]
 #[tokio::test]
 async fn postgres_session_store_round_trip() {
+    if common::docker_unavailable() {
+        return;
+    }
     use axum_conf::SessionStoreConfig;
     use testcontainers::ImageExt;
     use testcontainers_modules::{postgres::Postgres, testcontainers::runners::AsyncRunner};
@@ -124,6 +129,9 @@ async fn postgres_session_store_round_trip() {
 #[cfg(feature = "session-redis")]
 #[tokio::test]
 async fn redis_session_store_round_trip() {
+    if common::docker_unavailable() {
+        return;
+    }
     use axum_conf::SessionStoreConfig;
     use testcontainers::{
         GenericImage,

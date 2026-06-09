@@ -12,7 +12,7 @@ Both modes produce a unified `AuthenticatedIdentity` available as an Axum extrac
 ```toml
 # Cargo.toml
 [dependencies]
-axum-conf = { version = "0.3", features = ["keycloak"] }
+axum-conf = { version = "0.5", features = ["keycloak"] }
 ```
 
 ## Configuration

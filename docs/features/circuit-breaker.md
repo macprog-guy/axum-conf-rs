@@ -8,7 +8,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-axum-conf = { version = "0.3", features = ["circuit-breaker"] }
+axum-conf = { version = "0.5", features = ["circuit-breaker"] }
 ```
 
 Configure targets in your TOML:

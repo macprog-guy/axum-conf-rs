@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Removed nine unused dependencies (`prometheus`, `axum-metrics`, `utoipa-axum`,
+  `rustls-native-certs`, `http-body`, `http-body-util`, `humantime`, `rust_decimal`,
+  `opentelemetry-semantic-conventions`), trimming compile time and supply-chain surface.
+  The `metrics`, `rustls`, `openapi`, and `opentelemetry` features are unaffected.
+- `docs.rs` now builds with all features and renders per-feature availability badges
+  (`[package.metadata.docs.rs]` + `doc(cfg)`), so feature-gated APIs are visible online.
+
+### Fixed
+- The test suite no longer mutates the process-global `RUST_ENV`, removing a data race
+  that could make unrelated tests flaky under parallel execution.
+
 ## [0.5.0] - 2026-06-08
 
 ### Added

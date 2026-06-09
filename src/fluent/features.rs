@@ -615,32 +615,24 @@ where
             }
 
             self.inner = self.inner.layer(cors);
+        } else if self.config.is_production {
+            // Production: fail-safe to restrictive CORS (same-origin only).
+            // The deployment environment is resolved once at config load
+            // (`Config::is_production`); this code never reads `RUST_ENV` itself.
+            tracing::warn!(
+                "No CORS configuration found in production environment. \
+                 Using restrictive same-origin policy. Configure [http.cors] \
+                 in your config file to allow cross-origin requests."
+            );
+            // Default CorsLayer denies all cross-origin requests
+            self.inner = self.inner.layer(CorsLayer::new());
         } else {
-            // No CORS config specified - behavior depends on environment
-            let rust_env = std::env::var("RUST_ENV").unwrap_or_default().to_lowercase();
-            let is_production = rust_env.is_empty()
-                || rust_env == "prod"
-                || rust_env == "production"
-                || rust_env == "release";
-
-            if is_production {
-                // Production: fail-safe to restrictive CORS (same-origin only)
-                tracing::warn!(
-                    "No CORS configuration found in production environment. \
-                     Using restrictive same-origin policy. Configure [http.cors] \
-                     in your config file to allow cross-origin requests."
-                );
-                // Default CorsLayer denies all cross-origin requests
-                self.inner = self.inner.layer(CorsLayer::new());
-            } else {
-                // Development/Test: use permissive defaults with warning
-                tracing::warn!(
-                    "No CORS configuration found (RUST_ENV={}). Using permissive defaults. \
-                     This is NOT safe for production - configure explicit CORS rules.",
-                    rust_env
-                );
-                self.inner = self.inner.layer(CorsLayer::very_permissive());
-            }
+            // Development/Test: use permissive defaults with warning
+            tracing::warn!(
+                "No CORS configuration found (non-production environment). Using permissive \
+                 defaults. This is NOT safe for production - configure explicit CORS rules."
+            );
+            self.inner = self.inner.layer(CorsLayer::very_permissive());
         }
         self
     }

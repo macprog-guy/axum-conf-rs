@@ -32,7 +32,7 @@ edition = "2021"
 
 [dependencies]
 axum = "0.8"
-axum-conf = "0.3"
+axum-conf = "0.5"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

@@ -48,12 +48,12 @@ async fn test_setup_cors_with_no_config() {
 
 #[tokio::test]
 async fn test_setup_cors_with_no_config_dev_environment() {
-    // In development environment, permissive CORS is used for convenience
-    unsafe {
-        std::env::set_var("RUST_ENV", "dev");
-    }
-
-    let config = create_test_config();
+    // In development environment, permissive CORS is used for convenience.
+    // The deployment environment is a resolved field on Config, so we set it
+    // directly rather than mutating the process-global RUST_ENV (which races
+    // with other parallel tests).
+    let mut config = create_test_config();
+    config.is_production = false;
     let fluent_router = FluentRouter::without_state(config).unwrap().setup_cors();
 
     let mut app = fluent_router.into_inner();
@@ -81,10 +81,6 @@ async fn test_setup_cors_with_no_config_dev_environment() {
                 .contains_key("access-control-allow-methods"),
         "Dev environment should have permissive CORS"
     );
-
-    unsafe {
-        std::env::remove_var("RUST_ENV");
-    }
 }
 
 #[tokio::test]

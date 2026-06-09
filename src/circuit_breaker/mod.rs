@@ -189,7 +189,10 @@ mod tests {
         assert_eq!(err.target(), Some("test"));
     }
 
-    #[tokio::test]
+    // `start_paused` drives tokio's virtual clock: the call_timeout (which uses
+    // `tokio::time::timeout`) and the inner sleep share the paused timer, so the
+    // timeout fires deterministically and instantly with no real wall-clock wait.
+    #[tokio::test(start_paused = true)]
     async fn test_guarded_call_timeout() {
         let config = CircuitBreakerTargetConfig {
             call_timeout: Some(Duration::from_millis(10)),

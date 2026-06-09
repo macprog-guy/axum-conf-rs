@@ -7,7 +7,7 @@ The `rustls` feature enables TLS (Transport Layer Security) for secure connectio
 ```toml
 # Cargo.toml
 [dependencies]
-axum-conf = { version = "0.3", features = ["rustls"] }
+axum-conf = { version = "0.5", features = ["rustls"] }
 ```
 
 ## Automatic Enabling
@@ -20,7 +20,7 @@ The `rustls` feature is automatically enabled when you use:
 
 ```toml
 # This automatically enables rustls
-axum-conf = { version = "0.3", features = ["postgres"] }
+axum-conf = { version = "0.5", features = ["postgres"] }
 ```
 
 ## How It Works

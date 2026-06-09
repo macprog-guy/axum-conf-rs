@@ -7,7 +7,10 @@
 
 [advisories]
 version = 2
-# RustSec advisories acknowledged with rationale. Revisit when fixes land.
+# RustSec advisories acknowledged with rationale. Each entry is unmaintained- or
+# no-fix-available-class, not an exploitable path in this crate. Re-audit this
+# list every release: drop an entry as soon as a dependency upgrade removes the
+# advisory, and open a tracking issue before adding a new long-lived ignore.
 ignore = [
     # Timing side-channel in `rsa`; hard to exploit and the crate offers no fix.
     "RUSTSEC-2023-0071",

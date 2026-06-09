@@ -162,6 +162,30 @@ where
     /// Defaults to `()` (unit type) when no custom configuration is needed.
     #[serde(flatten, default)]
     pub app: T,
+
+    /// Whether the service is running in a production environment, resolved from
+    /// `RUST_ENV` at load time (empty / `prod` / `production` / `release` ⇒ `true`).
+    ///
+    /// This is **not** part of the TOML surface (`#[serde(skip)]`); it is the single
+    /// source of truth for fail-safe production behavior (restrictive CORS defaults,
+    /// OIDC audience fail-closed, proxy-header fail-closed) so those code paths never
+    /// read `std::env` directly. Defaults to `true` (fail-safe) when unknown.
+    #[serde(skip, default = "default_is_production")]
+    pub(crate) is_production: bool,
+}
+
+/// Default for [`Config::is_production`]: assume production (fail-safe) when the
+/// environment is unknown.
+fn default_is_production() -> bool {
+    true
+}
+
+/// Returns whether `rust_env` denotes a production environment. An empty value is
+/// treated as production so that an unset `RUST_ENV` fails safe. Mirrors the historic
+/// inline check in `setup_cors`.
+pub(crate) fn is_production_env(rust_env: &str) -> bool {
+    let env = rust_env.trim().to_lowercase();
+    env.is_empty() || env == "prod" || env == "production" || env == "release"
 }
 
 impl<T> Default for Config<T>
@@ -186,6 +210,7 @@ where
                 #[cfg(feature = "circuit-breaker")]
                 circuit_breaker: CircuitBreakerConfig::default(),
                 app: T::default(),
+                is_production: default_is_production(),
             },
         }
     }
@@ -228,9 +253,14 @@ where
     /// where {env} is the provided environment name (e.g., "dev", "prod").
     ///
     pub fn from_toml_file(env: impl AsRef<str>) -> Result<Config<T>> {
-        let path = format!("config/{}.toml", env.as_ref());
+        let env = env.as_ref();
+        let path = format!("config/{env}.toml");
         let text = fs::read_to_string(path)?;
-        Self::from_toml(&text)
+        let mut config = Self::from_toml(&text)?;
+        // Resolve the deployment environment once, here, so no downstream code
+        // path needs to read `RUST_ENV` from the process environment.
+        config.is_production = is_production_env(env);
+        Ok(config)
     }
 
     ///
@@ -506,14 +536,9 @@ where
 
     ///
     /// Builds and returns a Postgres connection pool based on the configuration.
-    /// The current implementation uses TLS with system root certificates.
-    /// Furthermore, the application_name will be set to the crate package name
-    /// for easier identification in the database logs.
-    ///
-    /// NOTE: load_native_certs does not return a regular Result type. Instead it
-    ///       returns CertificateResult, which contains both a vec of certs and a
-    ///       vec of errors encountered when loading certs. We consider it a
-    ///       failure if any errors were encountered.
+    /// TLS is negotiated by `sqlx` (rustls + ring) using the system root
+    /// certificates; the `application_name` is set to the crate package name for
+    /// easier identification in the database logs.
     ///
     #[cfg(feature = "postgres")]
     pub fn create_pgpool(&self) -> Result<Pool> {
@@ -817,8 +842,11 @@ format = "compact"
 
     #[test]
     fn test_config_builder_partial_configuration() {
-        // Test that we can use builder methods to override just some defaults
-        let config = Config::new()
+        // Build from an all-defaults config parsed directly from TOML (no file,
+        // no `RUST_ENV`) so the "defaults remain" assertions are deterministic
+        // regardless of the ambient environment.
+        let config = Config::<()>::from_toml("")
+            .expect("empty TOML yields an all-defaults config")
             .with_bind_port(9000)
             .with_max_concurrent_requests(500);
 
@@ -834,25 +862,27 @@ format = "compact"
     }
 
     #[test]
-    fn test_load_from_rust_env() {
-        unsafe {
-            env::set_var("RUST_ENV", "test");
-        }
-
-        let result = Config::<()>::from_rust_env();
+    fn test_load_from_env_named_file() {
+        // Exercise the environment-name → config-file resolution that
+        // `from_rust_env` delegates to, *without* mutating the process-global
+        // `RUST_ENV` (which races with parallel tests that read it via
+        // `Config::new()`/`default()`).
+        let ok = Config::<()>::from_toml_file("test");
         assert!(
-            result.is_ok(),
-            "Expected configuration file to load successfully"
+            ok.is_ok(),
+            "Expected config/test.toml to load successfully: {:?}",
+            ok.err()
+        );
+        // `is_production` is derived from the environment name; "test" is not production.
+        assert!(
+            !ok.unwrap().is_production,
+            "the 'test' environment must not be treated as production"
         );
 
-        unsafe {
-            env::remove_var("RUST_ENV");
-        }
-
-        let result = Config::<()>::from_rust_env();
+        let missing = Config::<()>::from_toml_file("__nonexistent_env__");
         assert!(
-            result.is_err(),
-            "Expected error when loading non-existent default config file"
+            missing.is_err(),
+            "Expected an error when the config file does not exist"
         );
     }
 
@@ -1552,9 +1582,13 @@ max_payload_size_bytes = "1KiB"
 
     #[test]
     fn test_config_new_creates_unit_config() {
+        // `Config::new()` resolves a config file from `RUST_ENV`, so only assert
+        // the environment-independent invariant here: the app config is the unit
+        // type. Default field values are covered deterministically by
+        // `test_config_builder_partial_configuration` (which builds from
+        // `from_toml`, not the ambient environment).
         let config = Config::new();
         assert_eq!(config.app, ());
-        assert_eq!(config.http.bind_addr, "0.0.0.0");
     }
 
     #[test]

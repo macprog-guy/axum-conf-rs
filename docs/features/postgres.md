@@ -7,7 +7,7 @@ The `postgres` feature adds PostgreSQL database support with connection pooling 
 ```toml
 # Cargo.toml
 [dependencies]
-axum-conf = { version = "0.3", features = ["postgres"] }
+axum-conf = { version = "0.5", features = ["postgres"] }
 ```
 
 ## Configuration

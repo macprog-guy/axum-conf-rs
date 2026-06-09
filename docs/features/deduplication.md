@@ -7,7 +7,7 @@ The `deduplication` feature prevents duplicate request processing by tracking re
 ```toml
 # Cargo.toml
 [dependencies]
-axum-conf = { version = "0.3", features = ["deduplication"] }
+axum-conf = { version = "0.5", features = ["deduplication"] }
 ```
 
 ## Configuration

@@ -15,6 +15,7 @@ use {
     testcontainers_modules::postgres::Postgres,
 };
 
+mod common;
 mod keycloak;
 use keycloak::KeycloakContainer;
 
@@ -83,6 +84,9 @@ async fn create_oidc_test_router(mut config: Config) -> Router {
 
 #[tokio::test]
 async fn test_oidc_integration() {
+    if common::docker_unavailable() {
+        return;
+    }
     // Start Keycloak container and setup test realm/client/user
     let keycloak = KeycloakContainer::start().await;
     keycloak.create_test_user().await;
@@ -298,6 +302,9 @@ async fn whoami_handler(identity: AuthenticatedIdentity) -> String {
 
 #[tokio::test]
 async fn test_oidc_user_span_integration() {
+    if common::docker_unavailable() {
+        return;
+    }
     use axum_conf::{FluentRouter, HttpMiddleware, HttpMiddlewareConfig};
 
     // Start Keycloak container and setup test realm/client/user

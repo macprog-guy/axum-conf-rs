@@ -8,7 +8,7 @@ Enable the feature:
 
 ```toml
 [dependencies]
-axum-conf = { version = "0.3", features = ["openapi"] }
+axum-conf = { version = "0.5", features = ["openapi"] }
 utoipa = { version = "5", features = ["axum_extras"] }
 ```
 

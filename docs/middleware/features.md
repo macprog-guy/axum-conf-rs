@@ -322,7 +322,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-axum-conf = { version = "0.3", features = [
+axum-conf = { version = "0.5", features = [
     "concurrency-limit",
     "payload-limit",
     "path-normalization",
@@ -335,7 +335,7 @@ Or use a convenience feature group:
 
 ```toml
 [dependencies]
-axum-conf = { version = "0.3", features = ["production"] }
+axum-conf = { version = "0.5", features = ["production"] }
 # Includes: metrics, rate-limiting, security-headers, compression, cors
 ```
 

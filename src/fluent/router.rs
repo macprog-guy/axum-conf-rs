@@ -130,6 +130,7 @@ impl FluentRouter {
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: config.circuit_breaker,
             app: (),
+            is_production: config.is_production,
         };
         FluentRouter::<()>::with_state(base_config, ())
     }
@@ -191,6 +192,7 @@ where
             #[cfg(feature = "circuit-breaker")]
             circuit_breaker: config.circuit_breaker,
             app: (),
+            is_production: config.is_production,
         };
 
         // Create the base router and add public fallback files if configured

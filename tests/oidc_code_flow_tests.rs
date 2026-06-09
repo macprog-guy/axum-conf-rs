@@ -20,6 +20,7 @@ use {
     testcontainers_modules::postgres::Postgres,
 };
 
+mod common;
 mod keycloak;
 use keycloak::KeycloakContainer;
 
@@ -114,6 +115,9 @@ fn extract_form_action(html: &str) -> String {
 
 #[tokio::test]
 async fn test_oidc_auth_code_flow_full() {
+    if common::docker_unavailable() {
+        return;
+    }
     // ── Setup ────────────────────────────────────────────────────────────
 
     // Start Keycloak
@@ -166,9 +170,7 @@ async fn test_oidc_auth_code_flow_full() {
     let service = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
 
     let server_handle = tokio::spawn(async move {
-        axum::serve(listener, service)
-            .await
-            .expect("Server failed");
+        axum::serve(listener, service).await.expect("Server failed");
     });
 
     // Let middleware (OIDC discovery) settle
@@ -277,11 +279,7 @@ async fn test_oidc_auth_code_flow_full() {
         .unwrap();
 
     // We need to first GET the login page with the non-redirect client to collect cookies
-    let login_page2 = kc_post_client
-        .get(&keycloak_auth_url)
-        .send()
-        .await
-        .unwrap();
+    let login_page2 = kc_post_client.get(&keycloak_auth_url).send().await.unwrap();
 
     // Keycloak may return the page directly or redirect — follow to the form
     let (form_action_url, kc_session_client) = if login_page2.status() == 200 {
@@ -300,10 +298,7 @@ async fn test_oidc_auth_code_flow_full() {
         let html = page.text().await.unwrap();
         (extract_form_action(&html), kc_post_client)
     } else {
-        panic!(
-            "Unexpected status from Keycloak: {}",
-            login_page2.status()
-        );
+        panic!("Unexpected status from Keycloak: {}", login_page2.status());
     };
 
     let auth_response = kc_session_client

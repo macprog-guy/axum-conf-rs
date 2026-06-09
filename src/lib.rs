@@ -3,6 +3,7 @@
 //! A batteries-included library for building production-ready web services with Axum,
 //! designed specifically for Kubernetes deployments.
 //!
+#![cfg_attr(docsrs, feature(doc_cfg))]
 //! Get health probes, metrics, security headers, rate limiting, and more — all
 //! configured through simple TOML.
 //!
@@ -261,9 +262,11 @@ pub mod fluent;
 mod utils;
 
 #[cfg(feature = "circuit-breaker")]
+#[cfg_attr(docsrs, doc(cfg(feature = "circuit-breaker")))]
 pub mod circuit_breaker;
 
 #[cfg(feature = "openapi")]
+#[cfg_attr(docsrs, doc(cfg(feature = "openapi")))]
 pub mod openapi;
 
 pub use config::*;

@@ -7,9 +7,9 @@ The `session` feature adds cookie-based session management for server-side state
 ```toml
 # Cargo.toml
 [dependencies]
-axum-conf = { version = "0.3", features = ["session"] }
+axum-conf = { version = "0.5", features = ["session"] }
 # or implicitly via keycloak
-axum-conf = { version = "0.3", features = ["keycloak"] }
+axum-conf = { version = "0.5", features = ["keycloak"] }
 ```
 
 The `session` feature uses an in-memory store. For a shared store across
@@ -322,9 +322,9 @@ type = "memory"                       # default — per-process, no shared state
 Enable the matching feature in `Cargo.toml`:
 
 ```toml
-axum-conf = { version = "0.3", features = ["session-postgres"] }
+axum-conf = { version = "0.5", features = ["session-postgres"] }
 # or
-axum-conf = { version = "0.3", features = ["session-redis"] }
+axum-conf = { version = "0.5", features = ["session-redis"] }
 ```
 
 Both `session-postgres` and `session-redis` imply `session`. The Postgres store

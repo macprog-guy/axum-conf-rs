@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `SharedIdentity` extractor: a cheaply-cloned (`Arc`-backed, `Deref`) handle to the
+  authenticated identity for read-only handlers, avoiding the per-request deep clone that
+  `AuthenticatedIdentity` extraction performs (~3.4× faster identity extraction in the bench).
+- `resilience::retry_transient` + `RetryPolicy`: a reusable retry helper that re-runs an
+  operation while it returns a transient error (`Error::is_transient`) using full-jitter
+  exponential backoff. The JWKS fetch now uses it (adding jitter to de-correlate fleet-wide
+  retries). `Config::with_production` lets programmatic configs set the production posture.
+- `Sensitive::expose_secret()` returns a borrowed reference to the wrapped secret, the
+  preferred accessor over the public field (which becomes private in a future release).
+
+### Changed
+- Role extractors (`WithRole`/`AnyRole`/`AllRoles`) now borrow the identity to check the role
+  and only clone on success, so a `403` no longer pays a deep copy. Request deduplication's
+  hot duplicate path is now a borrowed lookup (no allocation on a replay).
+- Configuration builder methods (`Config`/`HttpConfig` `new`/`with_*`) are now `#[must_use]`,
+  so accidentally discarding a builder result is a compile-time warning.
+- The `/ready` probe now checks the database circuit breaker with a side-effect-free
+  `CircuitBreakerState::is_open()` instead of `should_allow()`, so frequent probes no longer
+  consume the breaker's half-open recovery budget.
+- Database circuit-breaker calls (`GuardedPool::query`) only trip on *degradation*
+  (connectivity / pool exhaustion). Normal outcomes — no rows, constraint violations, decode
+  errors — no longer open the circuit (and count as a healthy response). New
+  `guarded_call_with` exposes a custom failure classifier.
+- `Error::into_response` logs 5xx at `error!` and 4xx at `debug!` (4xx detail can be
+  attacker-supplied), and `Error::is_transient` now also treats an open circuit as transient.
+- `CircuitBreakerError` gained `is_transient()` and a `From<CircuitBreakerError<E>>` bridge
+  into the unified `Error` taxonomy.
+
+### Fixed
+- A circuit breaker no longer refreshes its open-window timestamp on late failures while
+  already open, which could otherwise delay recovery indefinitely.
+- Server-**generated** `x-request-id` values are now propagated onto responses, not just
+  client-supplied ones. The `SetRequestId`/`PropagateRequestId` layers were applied in the
+  wrong order for axum (Propagate ended up outer, capturing the id before it was generated),
+  so responses to requests without an inbound request id carried no `x-request-id`. Clients can
+  now correlate every response with its server-side request id.
+
 ### Security
 - **Proxy OIDC headers are now fail-closed in production.** When `[http.proxy_oidc]` is
   enabled, the `X-Auth-Request-*` identity/role headers are only honored when the request
@@ -37,6 +75,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not merely at `DEBUG` level.
 - A malformed (deprecated) `X-Frame-Options: ALLOW-FROM` URL now falls back to `DENY` rather
   than dropping all security headers.
+- Credential and API-key comparisons now use the audited `subtle` crate's constant-time
+  equality, hardening the existing timing-safe comparison against compiler optimization.
 
 ### Fixed
 - OIDC token refresh responses that omit `expires_in` no longer store an expiry of `0`

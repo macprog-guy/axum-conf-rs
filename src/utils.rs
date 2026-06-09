@@ -18,11 +18,19 @@ use {
     zeroize::{Zeroize, ZeroizeOnDrop},
 };
 
+/// Compiles a regex from a compile-time-constant pattern. The patterns in this
+/// crate are fixed string literals, so compilation cannot fail at runtime — the
+/// single `expect` is centralized here rather than at each call site.
+fn compile_const_regex(pattern: &str) -> Regex {
+    #[allow(clippy::expect_used)]
+    Regex::new(pattern).expect("constant regex pattern is valid")
+}
+
 /// Regular expression pattern for matching handlebars-style environment variable references.
 /// Matches patterns like `{{ VAR_NAME }}` with optional whitespace around the variable name.
 /// Variable names must be uppercase letters, digits, or underscores (standard env var naming).
 static HANDLEBAR_REGEXP: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\{\{\s*([A-Z0-9_]+)\s*\}\}").unwrap());
+    LazyLock::new(|| compile_const_regex(r"\{\{\s*([A-Z0-9_]+)\s*\}\}"));
 
 /// A wrapper type for sensitive data that obscures the value in debug output
 /// and securely zeros memory when dropped.
@@ -73,6 +81,19 @@ static HANDLEBAR_REGEXP: LazyLock<Regex> =
 #[derive(Clone, Deserialize, Default, Zeroize, ZeroizeOnDrop)]
 pub struct Sensitive<T: Default + Zeroize>(pub T);
 
+impl<T: Default + Zeroize> Sensitive<T> {
+    /// Returns a reference to the wrapped secret.
+    ///
+    /// Use this to access the value deliberately (and greppably) rather than
+    /// reaching for the public `.0` field. Take care not to copy the returned
+    /// value into a location that outlives the `Sensitive` wrapper or that is
+    /// logged/serialized.
+    #[must_use]
+    pub fn expose_secret(&self) -> &T {
+        &self.0
+    }
+}
+
 impl From<&str> for Sensitive<String> {
     /// Creates a `Sensitive<String>` from a string slice.
     ///
@@ -100,18 +121,14 @@ impl<T: Default + Zeroize> std::fmt::Debug for Sensitive<T> {
     }
 }
 
-/// Constant-time byte-slice equality, to avoid leaking secret contents through
-/// comparison timing. The length check short-circuits (length is far less
-/// sensitive than contents); the remaining comparison is non-short-circuiting.
+/// Constant-time byte-slice equality, to avoid leaking secret *contents* through
+/// comparison timing. Backed by the audited [`subtle`] crate. Note that, like any
+/// such comparison over variable-length inputs, a length mismatch is detected
+/// without a full scan (length is far less sensitive than contents).
 #[must_use]
 pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    a.iter()
-        .zip(b.iter())
-        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
-        == 0
+    use subtle::ConstantTimeEq;
+    a.ct_eq(b).into()
 }
 
 /// Returns whether `path` is a safe same-origin redirect target.
@@ -312,7 +329,7 @@ impl ApiVersion {
     /// Looks for patterns like `/v1/`, `/v2/`, `/api/v1/`, etc.
     pub fn from_path(path: &str) -> Option<Self> {
         static VERSION_PATH_REGEX: LazyLock<Regex> =
-            LazyLock::new(|| Regex::new(r"/v(\d+)(?:/|$)").unwrap());
+            LazyLock::new(|| compile_const_regex(r"/v(\d+)(?:/|$)"));
 
         VERSION_PATH_REGEX
             .captures(path)
@@ -334,7 +351,7 @@ impl ApiVersion {
 
         // Try Accept header format (version=2)
         static VERSION_HEADER_REGEX: LazyLock<Regex> =
-            LazyLock::new(|| Regex::new(r"version=(\d+)").unwrap());
+            LazyLock::new(|| compile_const_regex(r"version=(\d+)"));
 
         VERSION_HEADER_REGEX
             .captures(header_value)
@@ -348,7 +365,7 @@ impl ApiVersion {
     /// Looks for `?version=2` or `&version=2` in the query string.
     pub fn from_query(query: &str) -> Option<Self> {
         static VERSION_QUERY_REGEX: LazyLock<Regex> =
-            LazyLock::new(|| Regex::new(r"[?&]version=(\d+)").unwrap());
+            LazyLock::new(|| compile_const_regex(r"[?&]version=(\d+)"));
 
         VERSION_QUERY_REGEX
             .captures(query)

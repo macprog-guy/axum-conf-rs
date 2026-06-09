@@ -108,7 +108,7 @@ where
                 })?;
                 // Periodically purge expired rows; aborts on drop with the router.
                 let cleanup = store.clone();
-                self.session_cleanup_handle = Some(tokio_util::task::AbortOnDropHandle::new(
+                self.task_guards.session_cleanup = Some(tokio_util::task::AbortOnDropHandle::new(
                     tokio::spawn(async move {
                         let mut interval =
                             tokio::time::interval(std::time::Duration::from_secs(60));
@@ -818,7 +818,15 @@ where
                     #[cfg(all(feature = "circuit-breaker", feature = "postgres"))]
                     {
                         let breaker = circuit_breaker_registry.get_or_default("database");
-                        if !breaker.should_allow() {
+                        // Side-effect-free peek: a readiness probe must not
+                        // transition the breaker or consume a half-open probe slot
+                        // (which `should_allow` would), or frequent probes would
+                        // starve real recovery traffic. `is_fast_failing` reports
+                        // unavailable only while Open AND within the reset window;
+                        // once that elapses, fall through to the real `SELECT 1` so
+                        // readiness can recover even if no other traffic is driving
+                        // the breaker.
+                        if breaker.is_fast_failing() {
                             tracing::warn!(
                                 "Database circuit breaker is open, skipping health check query"
                             );

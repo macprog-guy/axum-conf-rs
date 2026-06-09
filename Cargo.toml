@@ -48,6 +48,7 @@ humantime-serde = "1.1"
 # CIDR matching for the trusted-proxy allow-list (proxy-OIDC header gating).
 ipnet = { version = "2", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
+subtle = "2.6"
 thiserror = "2.0"
 tokio = { version = "1.50", features = ["full"] }
 tokio-util = { version = "0.7", features = ["rt"] }
@@ -183,7 +184,7 @@ opentelemetry = [
     "dep:opentelemetry_sdk",
 ]
 basic-auth = ["dep:base64"]
-openapi = ["dep:utoipa", "dep:utoipa-scalar"]
+openapi = ["dep:utoipa", "dep:utoipa-scalar", "dep:serde_json"]
 
 # New middleware features - High Impact
 metrics = ["dep:axum-prometheus"]

@@ -143,6 +143,22 @@ impl CircuitBreakerState {
         }
     }
 
+    /// Record a *neutral* outcome: the target responded, but the call was not a
+    /// genuine success (e.g. a database query that returned no rows or hit a
+    /// constraint — an application-level error, not degradation).
+    ///
+    /// In `Closed` this clears the consecutive-failure streak (the target is
+    /// reachable). In `HalfOpen` it deliberately does **nothing**: only genuine
+    /// successes should advance the recovery budget toward closing the circuit,
+    /// so a burst of application-level errors can't close a breaker without a
+    /// single working query.
+    pub fn record_neutral(&self) {
+        let mut g = self.lock();
+        if matches!(g.state, CircuitState::Closed) {
+            g.failure_count = 0;
+        }
+    }
+
     /// Record a failed call. May open the circuit.
     pub fn record_failure(&self) {
         let mut g = self.lock();
@@ -159,8 +175,10 @@ impl CircuitBreakerState {
                 self.transition_to_open(&mut g);
             }
             CircuitState::Open => {
-                // Update last failure time
-                g.last_failure_time = Some(Instant::now());
+                // Already open. Do NOT refresh `last_failure_time` here: the reset
+                // timeout is measured from when the circuit opened, and refreshing
+                // it on every late/in-flight failure could push the Open→HalfOpen
+                // transition back indefinitely and prevent recovery.
             }
         }
     }
@@ -168,6 +186,36 @@ impl CircuitBreakerState {
     /// Get the current circuit state.
     pub fn current_state(&self) -> CircuitState {
         self.lock().state
+    }
+
+    /// Returns whether the circuit is currently in the `Open` state, **without
+    /// any side effect**.
+    ///
+    /// Unlike [`should_allow`](Self::should_allow), this never transitions the
+    /// state machine or consumes a half-open probe slot. Note it stays `true`
+    /// even after the reset timeout has elapsed (the transition to half-open only
+    /// happens on a real call); for readiness checks prefer
+    /// [`is_fast_failing`](Self::is_fast_failing).
+    pub fn is_open(&self) -> bool {
+        matches!(self.lock().state, CircuitState::Open)
+    }
+
+    /// Returns whether the circuit is currently **fast-failing**: `Open` *and*
+    /// still within its reset timeout. Side-effect-free.
+    ///
+    /// Designed for health probes: while fast-failing, a probe should report
+    /// unavailable without attempting the call. Once the reset timeout has
+    /// elapsed this returns `false` even though the state is still `Open`, so the
+    /// probe can attempt the real call again (and recover) rather than reporting
+    /// unavailable forever when no other traffic drives the breaker's recovery.
+    pub fn is_fast_failing(&self) -> bool {
+        let g = self.lock();
+        match g.state {
+            CircuitState::Open => g
+                .last_failure_time
+                .is_some_and(|t| t.elapsed() < self.config.reset_timeout),
+            CircuitState::Closed | CircuitState::HalfOpen => false,
+        }
     }
 
     /// Get the current failure count.
@@ -422,6 +470,101 @@ mod tests {
             3,
             "exactly half_open_max_calls probes should be allowed"
         );
+    }
+
+    #[test]
+    fn is_open_is_side_effect_free() {
+        let config = CircuitBreakerTargetConfig {
+            failure_threshold: 1,
+            success_threshold: 2,
+            reset_timeout: Duration::from_millis(0), // immediate Open -> HalfOpen
+            half_open_max_calls: 2,
+            call_timeout: None,
+        };
+        let cb = CircuitBreakerState::new(config);
+        cb.record_failure();
+        assert!(cb.is_open());
+
+        // Polling is_open() many times must not transition the state or consume
+        // any half-open probe budget.
+        for _ in 0..10 {
+            assert!(cb.is_open());
+        }
+        assert_eq!(cb.current_state(), CircuitState::Open);
+
+        // The full half-open probe budget is still available to real traffic.
+        assert!(cb.should_allow());
+        assert_eq!(cb.current_state(), CircuitState::HalfOpen);
+        assert!(cb.should_allow());
+        assert!(!cb.should_allow(), "budget of 2 probes should be exhausted");
+    }
+
+    #[test]
+    fn is_fast_failing_clears_after_reset_window() {
+        let cb = CircuitBreakerState::new(test_config()); // reset 100ms
+        for _ in 0..3 {
+            cb.record_failure();
+        }
+        assert!(cb.is_open());
+        assert!(cb.is_fast_failing(), "Open and within the reset window");
+
+        cb.force_reset_timeout_elapsed();
+        assert!(cb.is_open(), "still Open — a peek never transitions");
+        assert!(
+            !cb.is_fast_failing(),
+            "past the reset window, a probe may proceed (recovery not blocked)"
+        );
+    }
+
+    #[test]
+    fn record_neutral_does_not_advance_half_open_recovery() {
+        let config = CircuitBreakerTargetConfig {
+            failure_threshold: 1,
+            success_threshold: 2,
+            reset_timeout: Duration::from_millis(0),
+            half_open_max_calls: 10,
+            call_timeout: None,
+        };
+        let cb = CircuitBreakerState::new(config);
+        cb.record_failure(); // -> Open
+        cb.force_reset_timeout_elapsed();
+        assert!(cb.should_allow()); // -> HalfOpen
+        assert_eq!(cb.current_state(), CircuitState::HalfOpen);
+
+        // Neutral outcomes (non-degradation errors) must NOT count toward closing.
+        cb.record_neutral();
+        cb.record_neutral();
+        cb.record_neutral();
+        assert_eq!(
+            cb.current_state(),
+            CircuitState::HalfOpen,
+            "neutral outcomes must not close a half-open circuit"
+        );
+
+        // Genuine successes advance recovery; success_threshold = 2 closes it.
+        cb.record_success();
+        cb.record_success();
+        assert_eq!(cb.current_state(), CircuitState::Closed);
+    }
+
+    #[test]
+    fn record_failure_while_open_does_not_delay_recovery() {
+        let cb = CircuitBreakerState::new(test_config()); // threshold 3, reset 100ms
+        for _ in 0..3 {
+            cb.record_failure();
+        }
+        assert_eq!(cb.current_state(), CircuitState::Open);
+
+        // Elapse the reset window, then deliver a late failure while Open. The
+        // guard must NOT push the window back, so recovery still proceeds.
+        cb.force_reset_timeout_elapsed();
+        cb.record_failure();
+
+        assert!(
+            cb.should_allow(),
+            "a late failure while Open must not delay the Open->HalfOpen transition"
+        );
+        assert_eq!(cb.current_state(), CircuitState::HalfOpen);
     }
 
     #[test]

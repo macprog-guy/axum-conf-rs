@@ -56,25 +56,20 @@ where
     /// **CRITICAL**: Middleware is processed outside-in for requests and inside-out for responses.
     /// The **last layer added is the outermost layer** and executes **first** on incoming requests.
     ///
-    /// The current order (from innermost to outermost):
-    /// 1. **OIDC Authentication** - Check auth after infrastructure layers
-    /// 2. **Deduplication** - Check for duplicate requests
-    /// 3. **Concurrency limit** - Control concurrent processing
-    /// 4. **Max payload size** - Limit body size
-    /// 5. **Compression/Decompression** - Handle encoding
-    /// 6. **Path normalization** - Normalize before routing
-    /// 7. **Sensitive headers** - Filter before logging
-    /// 8. **API versioning** - Extract version from path/headers/query
-    /// 9. **CORS** - Handle preflight & add headers
-    /// 10. **Security headers (Helmet)** - Apply to all responses
-    /// 11. **Logging** - Log all requests
-    /// 12. **Metrics** - Measure all requests
-    /// 13. **Readiness** - Database health check (benefits from timeout/rate limiting)
-    /// 14. **Timeout** - Set timeout boundary for everything (optional)
-    /// 15. **Rate limiting** - Reject excessive requests early
-    /// 16. **Request ID** - Generate/extract ID for tracing (early for observability)
-    /// 17. **Liveness** - Simple health check (always accessible, very early)
-    /// 18. **Panic catching** - Catch ALL panics from inner layers (outermost)
+    /// The current order (innermost → outermost) is grouped as:
+    ///
+    /// 1. **Authentication & routing** — protected static files, OIDC / Basic-Auth / proxy-header
+    ///    authentication (applied as `route_layer`s), public static files, the OIDC login routes,
+    ///    and session handling.
+    /// 2. **Request shaping** — deduplication, concurrency limit, payload limit, (de)compression,
+    ///    path normalization, sensitive-header redaction, and API versioning.
+    /// 3. **Cross-cutting** — CORS, security headers (Helmet), logging, and metrics.
+    /// 4. **Operational (outermost)** — readiness, timeout, rate limiting, request id, liveness,
+    ///    and panic recovery (the outermost layer — it executes first and catches all inner panics).
+    ///
+    /// The exact, position-by-position order is the `MIDDLEWARE_ORDER` list in
+    /// `src/fluent/tests/middleware/ordering.rs`, rendered as a table in `CLAUDE.md`; a doc-sync
+    /// test fails if the two drift. The literal call sequence lives in the body of this method.
     ///
     /// # Manual Setup (Advanced)
     ///
@@ -135,60 +130,63 @@ where
         // Capture config values before moving self
         let default_api_version = self.config.http.default_api_version;
 
-        // Middleware is added from innermost to outermost
-        // The last layer added executes FIRST on incoming requests
-        // Note: route_layer applies to routes added BEFORE it, so OIDC auth is applied first,
-        // then health endpoints are added AFTER (so they're not protected by auth)
+        // Middleware is added from innermost to outermost; the last layer added
+        // executes FIRST on incoming requests. The trailing `position N` comments
+        // refer to `MIDDLEWARE_ORDER` in `src/fluent/tests/middleware/ordering.rs`,
+        // the single source of truth for this order (a doc-sync test keeps the
+        // CLAUDE.md table aligned with it). Note: `route_layer` applies only to
+        // routes added BEFORE it, so auth is applied first and the health
+        // endpoints are added AFTER (so they're not protected by auth).
 
-        // Protected static files must be added BEFORE auth so route_layer applies to them
-        let router = self.setup_protected_files()?;
+        // Protected static files must be added BEFORE auth so route_layer applies to them.
+        let router = self.setup_protected_files()?; // position 1
 
         // Browser login redirect is the innermost route_layer so it runs AFTER all
         // auth middleware has resolved identity.
         #[cfg(feature = "keycloak")]
-        let router = router.setup_browser_login_redirect();
+        let router = router.setup_browser_login_redirect(); // position 2
 
         #[cfg(feature = "keycloak")]
-        let router = router.setup_oidc().await?; // 1a. OIDC Authentication (route_layer - applies to existing routes)
+        let router = router.setup_oidc().await?; // position 3 (route_layer)
 
         #[cfg(feature = "basic-auth")]
-        let router = router.setup_basic_auth()?; // 1b. Basic Auth (route_layer - applies to existing routes)
+        let router = router.setup_basic_auth()?; // position 4 (route_layer)
 
-        let router = router.setup_proxy_oidc(); // 1c. ProxyOidc (route_layer - applies to existing routes)
+        let router = router.setup_proxy_oidc(); // position 5 (route_layer)
 
-        // Public static files added AFTER auth so they're accessible without authentication
-        let router = router.setup_public_files()?;
+        // Public static files added AFTER auth so they're accessible without authentication.
+        let router = router.setup_public_files()?; // position 6
 
-        // OIDC auth code flow routes (login/callback/logout) - public, after auth middleware
+        // OIDC auth code flow routes (login/callback/logout) - public, after auth middleware.
         #[cfg(feature = "keycloak")]
-        let router = router.setup_oidc_routes().await?;
+        let router = router.setup_oidc_routes().await?; // position 7
 
-        let router = router.setup_user_span(); // 1c. Record username to span (after auth)
+        let router = router.setup_user_span(); // position 8 (record username on the span)
 
         // Session handling must wrap auth middleware so sessions are established
         // before session_to_identity middleware reads them.
         #[cfg(feature = "session")]
-        let router = router.setup_session_handling().await?;
+        let router = router.setup_session_handling().await?; // position 9
 
         let router = router
-            .setup_deduplication() // 2. Deduplication
-            .setup_concurrency_limit() // 3. Concurrency control
-            .setup_max_payload_size() // 4. Body size limits
-            .setup_compression() // 5. Compression/decompression
-            .setup_path_normalization() // 6. Path normalization
-            .setup_sensitive_headers() // 7. Filter sensitive headers
-            .setup_api_versioning(default_api_version) // 8. API versioning
-            .setup_cors() // 9. CORS handling
-            .setup_helmet() // 10. Security headers
-            .setup_logging() // 11. Request/response logging
-            .setup_metrics() // 12. Metrics collection
-            .setup_readiness() // 13. Readiness endpoint (benefits from timeout/rate limiting)
-            .setup_timeout() // 14. Request timeout (optional)
-            .setup_rate_limiting() // 15. Rate limiting
-            .setup_request_id() // 16. Request ID - early so all requests get IDs
-            .setup_liveness() // 17. Liveness endpoint (always accessible, very early)
-            .setup_catch_panic() // 18. Outermost - panic recovery
-            .setup_fallback_files()?; // 19. Fallback static files (must be last)
+            .setup_deduplication() // position 10
+            .setup_concurrency_limit() // position 11
+            .setup_max_payload_size() // position 12
+            .setup_compression() // position 13
+            .setup_path_normalization() // position 14
+            .setup_sensitive_headers() // position 15
+            .setup_api_versioning(default_api_version) // position 16
+            .setup_cors() // position 17
+            .setup_helmet() // position 18
+            .setup_logging() // position 19
+            .setup_metrics() // position 20
+            .setup_readiness() // position 21 (benefits from timeout/rate limiting)
+            .setup_timeout() // position 22
+            .setup_rate_limiting() // position 23
+            .setup_request_id() // position 24 (early so all requests get IDs)
+            .setup_liveness() // position 25 (always accessible, very early)
+            .setup_catch_panic() // position 26 (outermost - panic recovery)
+            .setup_fallback_files()?; // position 27 (must be last)
 
         Ok(router)
     }
@@ -287,8 +285,10 @@ where
 
         // Wait for graceful shutdown with timeout enforcement.
         // The timeout only starts AFTER a shutdown signal is received, not immediately.
-        // If connections drain before timeout, we complete early.
-        // If timeout expires first, we emit GracePeriodEnded and force shutdown.
+        // If connections drain before the timeout, we complete early.
+        // If the timeout expires first, we emit GracePeriodEnded and stop waiting:
+        // dropping `serve_future` stops accepting connections, but in-flight handler
+        // tasks already spawned by hyper are abandoned, not actively cancelled.
         tokio::select! {
             result = serve_future => {
                 // Server shut down gracefully (connections drained)
@@ -307,8 +307,13 @@ where
                 // Now start the timeout (only after signal received)
                 tokio::time::sleep(shutdown_timeout).await;
             } => {
-                // Timeout expired after shutdown was initiated
-                tracing::warn!("Graceful shutdown timeout expired, forcing shutdown");
+                // Timeout expired after shutdown was initiated: stop waiting and
+                // let the server stop accepting. In-flight requests still running
+                // past the grace period are abandoned rather than force-cancelled.
+                tracing::warn!(
+                    "Graceful shutdown timeout expired; stopping the server \
+                     (in-flight requests may be abandoned)"
+                );
                 shutdown_notifier.emit(ShutdownPhase::GracePeriodEnded);
             }
         }

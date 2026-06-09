@@ -1,0 +1,5 @@
+# Allow `unwrap`/`expect` in tests, where a panic is the intended failure mode.
+# Production code is held to the `unwrap_used`/`expect_used` lints (see Cargo.toml
+# `[lints.clippy]`); a deliberate panic there must carry a justifying #[allow].
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true

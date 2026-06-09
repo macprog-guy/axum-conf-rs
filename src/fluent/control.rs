@@ -57,7 +57,10 @@ where
                 max_requests_per_sec = self.config.http.max_requests_per_sec,
                 "RateLimiting middleware enabled"
             );
-            // Used for rate limiting below
+            // Used for rate limiting below. `finish()` only fails on an invalid
+            // builder configuration; the values here are guarded (rate > 0) and
+            // valid, so this is a fail-fast on a programming error at startup.
+            #[allow(clippy::expect_used)]
             let governor_conf = Box::new(
                 GovernorConfigBuilder::default()
                     .per_nanosecond((1_000_000_000 / self.config.http.max_requests_per_sec) as u64)
@@ -82,7 +85,7 @@ where
             });
 
             // Wrap the handle so that it gets cancelled when the router is dropped
-            self.governor_handle = Some(AbortOnDropHandle::new(handle));
+            self.task_guards.governor = Some(AbortOnDropHandle::new(handle));
 
             // Add the GovernorLayer for rate limiting
             self.inner = self.inner.layer(GovernorLayer::new(governor_conf));

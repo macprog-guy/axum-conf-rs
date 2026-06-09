@@ -227,6 +227,7 @@ where
     /// preferred_username_header = "X-Auth-Request-Preferred-Username"
     /// access_token_header = "X-Auth-Request-Access-Token"
     /// ```
+    #[must_use]
     pub fn setup_proxy_oidc(mut self) -> Self {
         if let Some(proxy_oidc_config) = &self.config.http.proxy_oidc
             && self.is_middleware_enabled(HttpMiddleware::ProxyOidc)
@@ -290,6 +291,7 @@ where
     /// This must be added as the innermost route_layer (before OIDC and BasicAuth)
     /// so it runs AFTER all authentication middleware has resolved identity.
     #[cfg(feature = "keycloak")]
+    #[must_use]
     pub fn setup_browser_login_redirect(mut self) -> Self {
         if let Some(oidc) = &self.config.http.oidc
             && oidc.auth_code_flow_enabled()

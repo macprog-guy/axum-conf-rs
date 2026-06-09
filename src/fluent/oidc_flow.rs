@@ -387,9 +387,14 @@ pub(crate) async fn logout_handler(
 
     // Redirect to OIDC provider's end-session endpoint if available
     if let Some(end_session_url) = &oidc.end_session_url {
+        // Infallible last-resort fallback, parsed once. The `expect` is on a
+        // compile-time-constant, valid URL and can never fire.
+        #[allow(clippy::expect_used)]
+        static FALLBACK_URL: std::sync::LazyLock<url::Url> = std::sync::LazyLock::new(|| {
+            url::Url::parse("http://localhost/").expect("a constant, valid URL")
+        });
         let mut url = url::Url::parse(end_session_url).unwrap_or_else(|_| {
-            url::Url::parse(&oidc.post_logout_redirect)
-                .unwrap_or_else(|_| url::Url::parse("http://localhost/").expect("fallback URL"))
+            url::Url::parse(&oidc.post_logout_redirect).unwrap_or_else(|_| FALLBACK_URL.clone())
         });
         {
             let mut query = url.query_pairs_mut();
@@ -519,15 +524,21 @@ fn parse_id_token_to_identity(
     access_token: Option<&str>,
     roles_claim: &str,
 ) -> Option<AuthenticatedIdentity> {
-    // JWT format: header.payload.signature
-    let parts: Vec<&str> = id_token_jwt.split('.').collect();
-    if parts.len() != 3 {
+    // JWT format: header.payload.signature — extract the payload (middle segment)
+    // without allocating a Vec; require exactly three segments.
+    let mut segments = id_token_jwt.split('.');
+    let (Some(_header), Some(payload_b64), Some(_sig), None) = (
+        segments.next(),
+        segments.next(),
+        segments.next(),
+        segments.next(),
+    ) else {
         return None;
-    }
+    };
 
     use base64::Engine;
     let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    let payload = engine.decode(parts[1]).ok()?;
+    let payload = engine.decode(payload_b64).ok()?;
     let claims: serde_json::Value = serde_json::from_slice(&payload).ok()?;
 
     if super::oidc_bearer::log_token_claims_enabled() {

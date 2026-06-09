@@ -209,13 +209,16 @@ impl Error {
         )
     }
 
-    /// Returns whether this error is likely transient and worth retrying.
+    /// Returns whether this error is likely transient and worth retrying after a
+    /// backoff.
     ///
-    /// `true` for failures that are typically temporary (I/O, database
-    /// connectivity, a circuit-breaker call that failed downstream); `false`
-    /// for deterministic failures (authentication, invalid input,
-    /// configuration, TLS setup, an open circuit, or an internal bug) where a
-    /// retry would not help. Lets callers implement retry/backoff without
+    /// `true` for failures that are typically temporary: I/O, database
+    /// connectivity, or a circuit-breaker call that failed downstream. `false`
+    /// for deterministic failures (authentication, invalid input, configuration,
+    /// TLS setup, an internal bug) and for an **open circuit** — the latter is a
+    /// deliberate fast-fail that only clears after its (typically multi-second)
+    /// reset timeout, so a short-backoff retry cannot help; wait for the circuit
+    /// to recover instead. Lets callers implement retry/backoff without
     /// downcasting the opaque source.
     pub fn is_transient(&self) -> bool {
         matches!(
@@ -348,13 +351,25 @@ impl IntoResponse for Error {
         let error_response = self.to_error_response();
 
         // Log the full underlying detail server-side, even when the client-facing
-        // message is redacted, so operators retain the real cause.
-        tracing::error!(
-            error_code = %error_response.error_code,
-            detail = %self.source,
-            status = %status.as_u16(),
-            "Error occurred"
-        );
+        // message is redacted, so operators retain the real cause. Tier by status:
+        // 5xx are operational problems worth `error!`; 4xx are routine client
+        // errors (auth failures, bad input) whose detail can be attacker-supplied,
+        // so log at `debug!` to avoid flooding error logs / log injection.
+        if status.is_server_error() {
+            tracing::error!(
+                error_code = %error_response.error_code,
+                detail = %self.source,
+                status = %status.as_u16(),
+                "Error occurred"
+            );
+        } else {
+            tracing::debug!(
+                error_code = %error_response.error_code,
+                detail = %self.source,
+                status = %status.as_u16(),
+                "Client error"
+            );
+        }
 
         (status, Json(error_response)).into_response()
     }
@@ -461,6 +476,15 @@ mod tests {
         assert!(!Error::invalid_input("missing field").is_transient());
         assert!(!Error::config("bad value").is_transient());
         assert!(!Error::internal("bug").is_transient());
+    }
+
+    #[cfg(feature = "circuit-breaker")]
+    #[test]
+    fn test_is_transient_circuit_breaker_kinds() {
+        // A failed downstream call is transient; an open circuit is a deliberate
+        // fast-fail and is NOT transient (a short retry can't ride out the reset).
+        assert!(Error::circuit_breaker_failed("downstream").is_transient());
+        assert!(!Error::circuit_breaker_open("db").is_transient());
     }
 
     // ========================================================================

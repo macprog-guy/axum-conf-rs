@@ -28,6 +28,8 @@ type HmacSha256 = Hmac<Sha256>;
 const TAG_LEN: usize = 32;
 
 /// Prepends an HMAC-SHA256 tag to `data`. Layout: `tag(32) || data`.
+// HMAC accepts a key of any length, so `new_from_slice` is infallible here.
+#[allow(clippy::expect_used)]
 fn seal(key: &[u8], data: &[u8]) -> Vec<u8> {
     let mut mac = HmacSha256::new_from_slice(key).expect("HMAC accepts a key of any length");
     mac.update(data);
@@ -41,6 +43,8 @@ fn seal(key: &[u8], data: &[u8]) -> Vec<u8> {
 /// Verifies and strips the HMAC tag produced by [`seal`]. Returns the original
 /// data, or `None` if the input is malformed or the tag does not verify (i.e. the
 /// stored bytes were tampered with or written without the signing key).
+// HMAC accepts a key of any length, so `new_from_slice` is infallible here.
+#[allow(clippy::expect_used)]
 fn open(key: &[u8], sealed: &[u8]) -> Option<Vec<u8>> {
     if sealed.len() < TAG_LEN {
         return None;

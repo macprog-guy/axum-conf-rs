@@ -4,7 +4,10 @@
 //! It tracks in-flight requests and returns 409 Conflict for duplicate requests
 //! within the TTL window.
 
-use axum::{body::Body, extract::Request, response::Response};
+use axum::{
+    extract::Request,
+    response::{IntoResponse, Response},
+};
 use dashmap::DashMap;
 use http::StatusCode;
 use std::{
@@ -33,6 +36,12 @@ struct RequestEntry {
 /// amortized time when at capacity — replacing a previous O(n) scan over the
 /// whole map under shard locks. Because the TTL is constant, insertion order is
 /// also expiry order, so the front of `order` is always the oldest entry.
+///
+/// The `max_entries` capacity is **approximate**: the size check and the eviction
+/// touch the `tracker` and `order` indices under separate locks, so under heavy
+/// concurrency the live count can transiently exceed `max_entries` before the
+/// over-capacity inserts evict. This bounded overshoot is acceptable for a
+/// best-effort replay cache and avoids serializing every request behind one lock.
 #[derive(Clone)]
 pub(crate) struct RequestTracker {
     tracker: Arc<DashMap<String, RequestEntry>>,
@@ -56,11 +65,15 @@ impl RequestTracker {
     /// Atomically check if a request is duplicate and mark it if not.
     /// Returns true if the request is a duplicate (already exists and not expired).
     /// Returns false if this is a new request (and marks it).
-    fn check_and_mark(&self, key: String) -> bool {
+    ///
+    /// Takes the key by reference so the common duplicate (replay) path performs
+    /// only a borrowed lookup; an owned key is allocated solely when inserting a
+    /// new request below.
+    fn check_and_mark(&self, key: &str) -> bool {
         let now = Instant::now();
 
         // Try to get existing entry
-        if let Some(entry) = self.tracker.get(&key) {
+        if let Some(entry) = self.tracker.get(key) {
             if now < entry.expires_at {
                 // Entry exists and hasn't expired - this is a duplicate
                 return true;
@@ -68,7 +81,7 @@ impl RequestTracker {
             // Entry expired, drop the reference so we can remove it. The stale
             // `order` record is skipped lazily during eviction.
             drop(entry);
-            self.tracker.remove(&key);
+            self.tracker.remove(key);
         }
 
         // Not a duplicate - need to mark this request.
@@ -82,16 +95,18 @@ impl RequestTracker {
             }
         }
 
-        // Insert the new entry and record its insertion order.
+        // Insert the new entry and record its insertion order. Ownership is
+        // needed by both the tracker map and the order index, so allocate here
+        // (only on the new-request path).
         let seq = self.seq.fetch_add(1, Ordering::Relaxed);
         self.tracker.insert(
-            key.clone(),
+            key.to_string(),
             RequestEntry {
                 expires_at: now + self.ttl,
                 seq,
             },
         );
-        self.order_lock().push_back((seq, key));
+        self.order_lock().push_back((seq, key.to_string()));
 
         // Not a duplicate
         false
@@ -218,18 +233,20 @@ where
             };
 
             // Atomically check if duplicate and mark if not
-            if tracker.check_and_mark(request_id.clone()) {
+            if tracker.check_and_mark(&request_id) {
                 tracing::warn!(
                     request_id = %request_id,
                     "Duplicate request detected, returning 409 Conflict"
                 );
 
-                // Return 409 Conflict for duplicate request
-                return Ok(Response::builder()
-                    .status(StatusCode::CONFLICT)
-                    .header("x-duplicate-request", "true")
-                    .body(Body::from("Duplicate request detected"))
-                    .unwrap());
+                // Return 409 Conflict for duplicate request. Built via
+                // `IntoResponse` (no fallible builder/unwrap); the header is static.
+                return Ok((
+                    StatusCode::CONFLICT,
+                    [("x-duplicate-request", "true")],
+                    "Duplicate request detected",
+                )
+                    .into_response());
             }
 
             tracing::debug!(
@@ -289,10 +306,10 @@ mod tests {
         let tracker = RequestTracker::new(Duration::from_secs(60), 1000);
 
         // First request - should not be duplicate (returns false, marks it)
-        assert!(!tracker.check_and_mark("test-key".to_string()));
+        assert!(!tracker.check_and_mark("test-key"));
 
         // Second request with same key - should be duplicate (returns true)
-        assert!(tracker.check_and_mark("test-key".to_string()));
+        assert!(tracker.check_and_mark("test-key"));
     }
 
     #[test]
@@ -300,10 +317,10 @@ mod tests {
         let tracker = RequestTracker::new(Duration::from_secs(60), 1000);
 
         // Non-existent key should not be duplicate (and gets marked)
-        assert!(!tracker.check_and_mark("nonexistent-key".to_string()));
+        assert!(!tracker.check_and_mark("nonexistent-key"));
 
         // Now it should be a duplicate
-        assert!(tracker.check_and_mark("nonexistent-key".to_string()));
+        assert!(tracker.check_and_mark("nonexistent-key"));
     }
 
     #[tokio::test]
@@ -311,16 +328,16 @@ mod tests {
         let tracker = RequestTracker::new(Duration::from_millis(50), 1000);
 
         // First check marks it
-        assert!(!tracker.check_and_mark("expiring-key".to_string()));
+        assert!(!tracker.check_and_mark("expiring-key"));
 
         // Should be duplicate immediately
-        assert!(tracker.check_and_mark("expiring-key".to_string()));
+        assert!(tracker.check_and_mark("expiring-key"));
 
         // Wait for expiration
         tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Should not be duplicate anymore (expired, and gets marked again)
-        assert!(!tracker.check_and_mark("expiring-key".to_string()));
+        assert!(!tracker.check_and_mark("expiring-key"));
     }
 
     #[tokio::test]
@@ -328,9 +345,9 @@ mod tests {
         let tracker = RequestTracker::new(Duration::from_millis(50), 1000);
 
         // Mark multiple entries
-        tracker.check_and_mark("key1".to_string());
-        tracker.check_and_mark("key2".to_string());
-        tracker.check_and_mark("key3".to_string());
+        tracker.check_and_mark("key1");
+        tracker.check_and_mark("key2");
+        tracker.check_and_mark("key3");
 
         assert_eq!(tracker.tracker.len(), 3);
 
@@ -352,11 +369,11 @@ mod tests {
         let tracker = layer.tracker();
 
         // Mark a request
-        assert!(!tracker.check_and_mark("test".to_string()));
+        assert!(!tracker.check_and_mark("test"));
 
         // Should be accessible through the layer's tracker (now it's a duplicate)
         let layer_tracker = layer.tracker();
-        assert!(layer_tracker.check_and_mark("test".to_string()));
+        assert!(layer_tracker.check_and_mark("test"));
     }
 
     #[test]
@@ -364,20 +381,20 @@ mod tests {
         let tracker = RequestTracker::new(Duration::from_secs(60), 3);
 
         // Mark 3 entries (at max capacity)
-        assert!(!tracker.check_and_mark("key1".to_string()));
-        assert!(!tracker.check_and_mark("key2".to_string()));
-        assert!(!tracker.check_and_mark("key3".to_string()));
+        assert!(!tracker.check_and_mark("key1"));
+        assert!(!tracker.check_and_mark("key2"));
+        assert!(!tracker.check_and_mark("key3"));
 
         assert_eq!(tracker.tracker.len(), 3);
 
         // Mark 4th entry - should trigger eviction
-        assert!(!tracker.check_and_mark("key4".to_string()));
+        assert!(!tracker.check_and_mark("key4"));
 
         // Should still be at max capacity
         assert_eq!(tracker.tracker.len(), 3);
 
         // The newest entry should exist (is now a duplicate)
-        assert!(tracker.check_and_mark("key4".to_string()));
+        assert!(tracker.check_and_mark("key4"));
 
         // key1 should have been evicted (oldest entry)
         // We can verify by checking the tracker directly

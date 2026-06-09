@@ -89,28 +89,44 @@ Default features are disabled. Most tests require `--all-features`.
 
 ### Middleware Stack Order
 
-Middleware is added innermost-to-outermost. The **last layer added executes first** on incoming requests:
+Middleware is added **innermost-to-outermost** by `setup_middleware()` (`src/fluent/builder.rs`):
+the last layer added is the outermost and executes **first** on an incoming request. The table
+below lists the application order (position 1 = innermost). It is the single source of truth and is
+generated from `MIDDLEWARE_ORDER` in `src/fluent/tests/middleware/ordering.rs`; the
+`claude_md_table_matches_generated` test fails if this table drifts from that list, so regenerate it
+(copy the test's expected output) rather than editing it by hand.
 
-1. Liveness/Readiness (innermost - health endpoints)
-2. Browser Login Redirect (redirects unauthenticated browsers to login)
-3. OIDC Authentication
-4. Basic Auth / API Key Authentication
-5. Proxy OIDC Authentication
-6. Request Deduplication
-7. Concurrency Limit
-8. Max Payload Size
-9. Compression
-10. Path Normalization
-11. Sensitive Headers
-12. Request ID (UUIDv7)
-13. API Versioning
-14. CORS
-15. Security Headers (Helmet)
-16. Logging
-17. Metrics (Prometheus)
-18. Timeout
-19. Rate Limiting
-20. Panic Catching (outermost)
+<!-- BEGIN GENERATED: middleware-order -->
+| # | Setup step | Responsibility | Feature |
+| --: | --- | --- | --- |
+| 1 | `setup_protected_files` | Protected static files (added before auth so the auth `route_layer` covers them) | — |
+| 2 | `setup_browser_login_redirect` | Redirect unauthenticated browsers to the login route | `keycloak` |
+| 3 | `setup_oidc` | OIDC authentication (bearer JWT and/or auth-code identity) | `keycloak` |
+| 4 | `setup_basic_auth` | HTTP Basic Auth and API-key authentication | `basic-auth` |
+| 5 | `setup_proxy_oidc` | Reverse-proxy header authentication (fail-closed in production) | — |
+| 6 | `setup_public_files` | Public static files (added after auth so they need no credentials) | — |
+| 7 | `setup_oidc_routes` | OIDC login / callback / logout routes | `keycloak` |
+| 8 | `setup_user_span` | Record the authenticated username on the tracing span | — |
+| 9 | `setup_session_handling` | Session cookie store (wraps the auth layers) | `session` |
+| 10 | `setup_deduplication` | Request deduplication by request id | `deduplication` |
+| 11 | `setup_concurrency_limit` | Max concurrent in-flight requests | `concurrency-limit` |
+| 12 | `setup_max_payload_size` | Request body size limit | `payload-limit` |
+| 13 | `setup_compression` | Response compression / request decompression | `compression` |
+| 14 | `setup_path_normalization` | Trailing-slash path normalization | `path-normalization` |
+| 15 | `setup_sensitive_headers` | Mark sensitive headers for redaction in logs | `sensitive-headers` |
+| 16 | `setup_api_versioning` | Extract the API version from path / header / query | `api-versioning` |
+| 17 | `setup_cors` | CORS preflight handling and response headers | `cors` |
+| 18 | `setup_helmet` | Security headers (Helmet) | `security-headers` |
+| 19 | `setup_logging` | Request / response logging | — |
+| 20 | `setup_metrics` | Prometheus metrics layer and the `/metrics` endpoint | `metrics` |
+| 21 | `setup_readiness` | Readiness probe endpoint (benefits from timeout / rate limiting) | — |
+| 22 | `setup_timeout` | Request timeout boundary | — |
+| 23 | `setup_rate_limiting` | Per-IP rate limiting (rejects excess load early) | `rate-limiting` |
+| 24 | `setup_request_id` | Generate / propagate the `x-request-id` header (early, for tracing) | — |
+| 25 | `setup_liveness` | Liveness probe endpoint (always reachable, very early) | — |
+| 26 | `setup_catch_panic` | Panic recovery — catches panics from every inner layer (outermost) | — |
+| 27 | `setup_fallback_files` | Fallback static files (must be installed last) | — |
+<!-- END GENERATED: middleware-order -->
 
 ### Test Organization
 

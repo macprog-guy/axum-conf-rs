@@ -3,10 +3,15 @@
 //! These benchmarks measure the latency added by each middleware layer
 //! to help identify performance bottlenecks and track regressions.
 
+use axum::extract::FromRequestParts;
 use axum::{Router, body::Body, http::Request, routing::get};
-use axum_conf::{Config, FluentRouter, HttpMiddleware, HttpMiddlewareConfig};
+use axum_conf::{
+    AuthMethod, AuthenticatedIdentity, Config, FluentRouter, HttpMiddleware, HttpMiddlewareConfig,
+    SharedIdentity,
+};
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
+use std::sync::Arc;
 use tower::ServiceExt;
 
 /// Simple handler that returns immediately
@@ -34,6 +39,9 @@ fn test_request(path: &str) -> Request<Body> {
 /// Benchmark: Bare axum router (no axum-conf middleware)
 fn bench_bare_axum(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
+    // Enter the runtime so synchronous setup (e.g. building a FluentRouter whose
+    // lazy Postgres pool spawns a reaper) has a Tokio context.
+    let _guard = rt.enter();
 
     let router = Router::new().route("/", get(handler));
 
@@ -48,6 +56,9 @@ fn bench_bare_axum(c: &mut Criterion) {
 /// Benchmark: FluentRouter with no middleware (baseline)
 fn bench_no_middleware(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
+    // Enter the runtime so synchronous setup (e.g. building a FluentRouter whose
+    // lazy Postgres pool spawns a reaper) has a Tokio context.
+    let _guard = rt.enter();
 
     let mut config = test_config();
     // Disable all middleware
@@ -69,6 +80,9 @@ fn bench_no_middleware(c: &mut Criterion) {
 /// Benchmark: Individual middleware layers
 fn bench_individual_middleware(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
+    // Enter the runtime so synchronous setup (e.g. building a FluentRouter whose
+    // lazy Postgres pool spawns a reaper) has a Tokio context.
+    let _guard = rt.enter();
     let mut group = c.benchmark_group("individual_middleware");
 
     // Request ID only
@@ -161,6 +175,9 @@ fn bench_cors(c: &mut Criterion) {
     use axum_conf::HttpCorsConfig;
 
     let rt = tokio::runtime::Runtime::new().unwrap();
+    // Enter the runtime so synchronous setup (e.g. building a FluentRouter whose
+    // lazy Postgres pool spawns a reaper) has a Tokio context.
+    let _guard = rt.enter();
 
     let mut config = test_config();
     config.http.cors = Some(HttpCorsConfig::default());
@@ -183,6 +200,9 @@ fn bench_cors(c: &mut Criterion) {
 #[cfg(feature = "security-headers")]
 fn bench_helmet(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
+    // Enter the runtime so synchronous setup (e.g. building a FluentRouter whose
+    // lazy Postgres pool spawns a reaper) has a Tokio context.
+    let _guard = rt.enter();
 
     let mut config = test_config();
     config.http.middleware = Some(HttpMiddlewareConfig::Include(vec![
@@ -206,6 +226,9 @@ fn bench_helmet(c: &mut Criterion) {
 #[cfg(feature = "compression")]
 fn bench_compression(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
+    // Enter the runtime so synchronous setup (e.g. building a FluentRouter whose
+    // lazy Postgres pool spawns a reaper) has a Tokio context.
+    let _guard = rt.enter();
 
     let mut config = test_config();
     config.http.support_compression = true;
@@ -227,9 +250,134 @@ fn bench_compression(c: &mut Criterion) {
     });
 }
 
+/// Benchmark: identity extraction — deep-cloning `AuthenticatedIdentity` vs the
+/// refcount-only `SharedIdentity`. Demonstrates the per-request allocation saved
+/// on the hottest authenticated path for read-only handlers.
+fn bench_identity_extraction(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    // Enter the runtime so synchronous setup (e.g. building a FluentRouter whose
+    // lazy Postgres pool spawns a reaper) has a Tokio context.
+    let _guard = rt.enter();
+    let identity = Arc::new(AuthenticatedIdentity {
+        method: AuthMethod::Oidc,
+        user: "alice@example.com".to_string(),
+        email: Some("alice@example.com".to_string()),
+        groups: vec!["staff".to_string(), "eng".to_string(), "oncall".to_string()],
+        roles: vec!["admin".to_string(), "editor".to_string()],
+        preferred_username: Some("alice".to_string()),
+        access_token: None,
+    });
+
+    // Build request `Parts` carrying the shared identity (mirrors what the auth
+    // middleware inserts). Extraction reads it without removing it.
+    let make_parts = |id: Arc<AuthenticatedIdentity>| {
+        let mut req = Request::builder().body(()).unwrap();
+        req.extensions_mut().insert(id);
+        req.into_parts().0
+    };
+
+    let mut group = c.benchmark_group("identity_extraction");
+
+    group.bench_function("authenticated_identity_clone", |b| {
+        b.to_async(&rt).iter(|| {
+            let id = Arc::clone(&identity);
+            async move {
+                let mut parts = make_parts(id);
+                let extracted =
+                    <AuthenticatedIdentity as FromRequestParts<()>>::from_request_parts(
+                        &mut parts,
+                        &(),
+                    )
+                    .await
+                    .unwrap();
+                black_box(extracted)
+            }
+        })
+    });
+
+    group.bench_function("shared_identity_arc", |b| {
+        b.to_async(&rt).iter(|| {
+            let id = Arc::clone(&identity);
+            async move {
+                let mut parts = make_parts(id);
+                let extracted =
+                    <SharedIdentity as FromRequestParts<()>>::from_request_parts(&mut parts, &())
+                        .await
+                        .unwrap();
+                black_box(extracted)
+            }
+        })
+    });
+
+    group.finish();
+}
+
+/// Benchmark: request deduplication under both the duplicate (replay) path and
+/// the new-request path, guarding the borrowed fast path and O(1) eviction.
+#[cfg(feature = "deduplication")]
+fn bench_deduplication(c: &mut Criterion) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    // Enter the runtime so synchronous setup (e.g. building a FluentRouter whose
+    // lazy Postgres pool spawns a reaper) has a Tokio context.
+    let _guard = rt.enter();
+
+    let mut config = test_config();
+    config.http.middleware = Some(HttpMiddlewareConfig::Include(vec![
+        HttpMiddleware::RequestId,
+        HttpMiddleware::RequestDeduplication,
+    ]));
+    let router = FluentRouter::without_state(config)
+        .unwrap()
+        .route("/", get(handler))
+        .setup_request_id()
+        .setup_deduplication()
+        .into_inner();
+
+    let request_with_id = |id: &str| {
+        Request::builder()
+            .method("GET")
+            .uri("/")
+            .header("x-request-id", id)
+            .body(Body::empty())
+            .unwrap()
+    };
+
+    let mut group = c.benchmark_group("deduplication");
+
+    // Duplicate path: the same id repeats, so every call after the first is a
+    // borrowed-lookup duplicate (409).
+    group.bench_function("duplicate", |b| {
+        b.to_async(&rt).iter(|| async {
+            let response = router
+                .clone()
+                .oneshot(request_with_id("fixed-id"))
+                .await
+                .unwrap();
+            black_box(response)
+        })
+    });
+
+    // New-request path: a fresh id each call exercises insert + eviction.
+    let counter = AtomicU64::new(0);
+    group.bench_function("unique", |b| {
+        b.to_async(&rt).iter(|| async {
+            let id = format!("id-{}", counter.fetch_add(1, Ordering::Relaxed));
+            let response = router.clone().oneshot(request_with_id(&id)).await.unwrap();
+            black_box(response)
+        })
+    });
+
+    group.finish();
+}
+
 /// Benchmark: Middleware stack scaling
 fn bench_middleware_stack_scaling(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
+    // Enter the runtime so synchronous setup (e.g. building a FluentRouter whose
+    // lazy Postgres pool spawns a reaper) has a Tokio context.
+    let _guard = rt.enter();
     let mut group = c.benchmark_group("stack_scaling");
 
     // 1 layer
@@ -319,10 +467,15 @@ criterion_group!(
     bench_bare_axum,
     bench_no_middleware,
     bench_individual_middleware,
+    bench_identity_extraction,
     bench_middleware_stack_scaling,
 );
 
-// Feature-gated benchmarks need separate groups and conditional main
+// Deduplication bench is gated on its own feature.
+#[cfg(feature = "deduplication")]
+criterion_group!(dedup_benches, bench_deduplication);
+
+// Feature-gated benchmarks need separate groups and conditional main.
 #[cfg(all(
     feature = "cors",
     feature = "security-headers",
@@ -330,16 +483,39 @@ criterion_group!(
 ))]
 criterion_group!(feature_benches, bench_cors, bench_helmet, bench_compression,);
 
+// One `criterion_main` per feature combination (cors+helmet+compression × dedup).
 #[cfg(all(
     feature = "cors",
     feature = "security-headers",
-    feature = "compression"
+    feature = "compression",
+    feature = "deduplication"
+))]
+criterion_main!(benches, feature_benches, dedup_benches);
+
+#[cfg(all(
+    feature = "cors",
+    feature = "security-headers",
+    feature = "compression",
+    not(feature = "deduplication")
 ))]
 criterion_main!(benches, feature_benches);
 
-#[cfg(not(all(
-    feature = "cors",
-    feature = "security-headers",
-    feature = "compression"
-)))]
+#[cfg(all(
+    not(all(
+        feature = "cors",
+        feature = "security-headers",
+        feature = "compression"
+    )),
+    feature = "deduplication"
+))]
+criterion_main!(benches, dedup_benches);
+
+#[cfg(all(
+    not(all(
+        feature = "cors",
+        feature = "security-headers",
+        feature = "compression"
+    )),
+    not(feature = "deduplication")
+))]
 criterion_main!(benches);

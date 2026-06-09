@@ -284,6 +284,7 @@ dependencies = [
  "sha2",
  "sqlx",
  "sqlx-postgres",
+ "subtle",
  "testcontainers",
  "testcontainers-modules",
  "thiserror 2.0.18",

@@ -122,3 +122,119 @@ impl<S: Send + Sync> OptionalFromRequestParts<S> for AuthenticatedIdentity {
         Ok(Self::arc_from_extensions(&parts.extensions).map(|arc| (*arc).clone()))
     }
 }
+
+/// A cheaply-cloned, read-only handle to the [`AuthenticatedIdentity`].
+///
+/// Extracting [`AuthenticatedIdentity`] deep-clones the identity — its `String`s,
+/// both `Vec`s, and the access token — on every call. The vast majority of
+/// handlers only *read* the identity (e.g. `identity.user`), so that copy is
+/// wasted work on the hottest authenticated path. `SharedIdentity` instead hands
+/// back the `Arc<AuthenticatedIdentity>` the auth middleware already stores, so a
+/// read-only handler pays only an atomic refcount bump. Access fields through its
+/// [`Deref`](std::ops::Deref) to `AuthenticatedIdentity`:
+///
+/// ```rust,ignore
+/// use axum_conf::SharedIdentity;
+///
+/// async fn handler(identity: SharedIdentity) -> String {
+///     // Deref gives transparent access to AuthenticatedIdentity's fields.
+///     format!("Hello, {}!", identity.user)
+/// }
+/// ```
+///
+/// Use [`AuthenticatedIdentity`] directly only when you need an owned copy.
+#[derive(Debug, Clone)]
+pub struct SharedIdentity(pub Arc<AuthenticatedIdentity>);
+
+impl std::ops::Deref for SharedIdentity {
+    type Target = AuthenticatedIdentity;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl SharedIdentity {
+    /// Consumes the handle and returns the inner shared `Arc`.
+    #[must_use]
+    pub fn into_arc(self) -> Arc<AuthenticatedIdentity> {
+        self.0
+    }
+}
+
+impl<S: Send + Sync> FromRequestParts<S> for SharedIdentity {
+    type Rejection = (StatusCode, &'static str);
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> std::result::Result<Self, Self::Rejection> {
+        AuthenticatedIdentity::arc_from_extensions(&parts.extensions)
+            .map(SharedIdentity)
+            .ok_or((StatusCode::UNAUTHORIZED, "Authentication required"))
+    }
+}
+
+impl<S: Send + Sync> OptionalFromRequestParts<S> for SharedIdentity {
+    type Rejection = Infallible;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> std::result::Result<Option<Self>, Self::Rejection> {
+        Ok(AuthenticatedIdentity::arc_from_extensions(&parts.extensions).map(SharedIdentity))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_identity() -> AuthenticatedIdentity {
+        AuthenticatedIdentity {
+            method: AuthMethod::Oidc,
+            user: "alice".to_string(),
+            email: Some("alice@example.com".to_string()),
+            groups: vec![],
+            roles: vec!["admin".to_string()],
+            preferred_username: None,
+            access_token: None,
+        }
+    }
+
+    fn parts_with(setup: impl FnOnce(&mut http::Extensions)) -> Parts {
+        let mut req = http::Request::builder().body(()).unwrap();
+        setup(req.extensions_mut());
+        req.into_parts().0
+    }
+
+    #[tokio::test]
+    async fn shared_identity_extracts_arc_and_derefs() {
+        let mut parts = parts_with(|ext| {
+            ext.insert(Arc::new(sample_identity()));
+        });
+        let shared = <SharedIdentity as FromRequestParts<()>>::from_request_parts(&mut parts, &())
+            .await
+            .expect("identity present");
+        // Field access goes through Deref to AuthenticatedIdentity, no deep clone.
+        assert_eq!(shared.user, "alice");
+        assert_eq!(shared.roles, vec!["admin".to_string()]);
+        // The shared Arc is reachable.
+        assert_eq!(shared.into_arc().user, "alice");
+    }
+
+    #[tokio::test]
+    async fn shared_identity_missing_is_unauthorized() {
+        let mut parts = parts_with(|_| {});
+        let result =
+            <SharedIdentity as FromRequestParts<()>>::from_request_parts(&mut parts, &()).await;
+        assert!(result.is_err());
+
+        // The optional extractor yields None instead of erroring.
+        let optional =
+            <SharedIdentity as OptionalFromRequestParts<()>>::from_request_parts(&mut parts, &())
+                .await
+                .unwrap();
+        assert!(optional.is_none());
+    }
+}

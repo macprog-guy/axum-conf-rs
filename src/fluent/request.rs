@@ -138,13 +138,15 @@ where
 
         tracing::trace!("RequestId middleware enabled");
         let x_request_id = HeaderName::from_static("x-request-id");
+        // axum applies the *last* `.layer()` as the outermost layer. `SetRequestId`
+        // must run before `PropagateRequestId` on the way in so the generated id
+        // exists when `PropagateRequestId` captures it — so `SetRequestId` has to be
+        // the outer (last-added) layer. Adding them in the other order leaves
+        // server-generated ids off the response (only client-supplied ids echo).
         self.inner = self
             .inner
-            .layer(SetRequestIdLayer::new(
-                x_request_id.clone(),
-                RequestIdGenerator,
-            ))
-            .layer(PropagateRequestIdLayer::new(x_request_id));
+            .layer(PropagateRequestIdLayer::new(x_request_id.clone()))
+            .layer(SetRequestIdLayer::new(x_request_id, RequestIdGenerator));
         self
     }
 
@@ -211,7 +213,7 @@ where
             let tracker = layer.tracker();
             let cleanup_interval = Duration::from_secs(60);
             let handle = tokio::spawn(dedup::cleanup_task(tracker, cleanup_interval));
-            self.dedup_cleanup_handle = Some(AbortOnDropHandle::new(handle));
+            self.task_guards.dedup_cleanup = Some(AbortOnDropHandle::new(handle));
 
             self.inner = self.inner.layer(layer);
         }

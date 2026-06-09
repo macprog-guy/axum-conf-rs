@@ -80,6 +80,39 @@ impl<E> CircuitBreakerError<E> {
             Self::Timeout { duration } => CircuitBreakerError::Timeout { duration },
         }
     }
+
+    /// Returns whether this error is likely transient and worth retrying after a
+    /// delay.
+    ///
+    /// A timeout is transient, and a failed downstream call is conservatively
+    /// treated as transient too (the breaker only surfaces it after the call
+    /// actually ran) — though note the wrapped inner error may itself be
+    /// deterministic (e.g. a "row not found"), so callers retrying a guarded
+    /// result should inspect it rather than retry blindly. An **open circuit** is
+    /// *not* transient: it is a deliberate fast-fail that only clears after the
+    /// reset timeout, so a short-backoff retry cannot help. Consistent with
+    /// [`crate::Error::is_transient`] via the [`From`] bridge below.
+    pub fn is_transient(&self) -> bool {
+        matches!(self, Self::Timeout { .. } | Self::CallFailed(_))
+    }
+}
+
+/// Bridges the generic circuit-breaker error into the crate's unified [`Error`]
+/// taxonomy, preserving the original error as the source so the chain and
+/// [`is_transient`](crate::Error::is_transient) classification compose.
+impl<E> From<CircuitBreakerError<E>> for crate::Error
+where
+    E: std::error::Error + Send + Sync + 'static,
+{
+    fn from(err: CircuitBreakerError<E>) -> Self {
+        let kind = match &err {
+            CircuitBreakerError::CircuitOpen { .. } => crate::ErrorKind::CircuitBreakerOpen,
+            CircuitBreakerError::CallFailed(_) | CircuitBreakerError::Timeout { .. } => {
+                crate::ErrorKind::CircuitBreakerFailed
+            }
+        };
+        crate::Error::new(kind, err)
+    }
 }
 
 #[cfg(test)]
@@ -163,5 +196,39 @@ mod tests {
             CircuitBreakerError::Timeout { duration: d } => assert_eq!(d, duration),
             _ => panic!("Expected Timeout"),
         }
+    }
+
+    #[test]
+    fn test_is_transient_classifies_variants() {
+        let open: CircuitBreakerError<TestError> = CircuitBreakerError::circuit_open("x");
+        let timeout: CircuitBreakerError<TestError> =
+            CircuitBreakerError::timeout(Duration::from_secs(1));
+        let failed: CircuitBreakerError<TestError> =
+            CircuitBreakerError::call_failed(TestError("e".to_string()));
+        // An open circuit is a deliberate fast-fail: not transient.
+        assert!(!open.is_transient());
+        assert!(timeout.is_transient());
+        assert!(failed.is_transient());
+    }
+
+    #[test]
+    fn test_bridges_into_unified_error() {
+        // Consistency: CircuitOpen -> CircuitBreakerOpen (non-transient in both).
+        let open: CircuitBreakerError<TestError> = CircuitBreakerError::circuit_open("db");
+        let err: crate::Error = open.into();
+        assert_eq!(err.kind(), crate::ErrorKind::CircuitBreakerOpen);
+        assert!(!err.is_transient());
+
+        let timeout: CircuitBreakerError<TestError> =
+            CircuitBreakerError::timeout(Duration::from_secs(1));
+        let err: crate::Error = timeout.into();
+        assert_eq!(err.kind(), crate::ErrorKind::CircuitBreakerFailed);
+        assert!(err.is_transient());
+
+        // The original error is preserved as the source.
+        let failed: CircuitBreakerError<TestError> =
+            CircuitBreakerError::call_failed(TestError("boom".to_string()));
+        let err: crate::Error = failed.into();
+        assert!(std::error::Error::source(&err).is_some());
     }
 }

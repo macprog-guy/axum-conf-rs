@@ -114,6 +114,9 @@ where
     fn with_openapi_config<A: utoipa::OpenApi>(self, config: ScalarConfig) -> Self {
         // Generate the spec once and reuse it for both the JSON route and Scalar.
         let spec = A::openapi();
+        // Serialization of a derived OpenAPI spec only fails on a programming
+        // error, surfaced here as a fail-fast at startup.
+        #[allow(clippy::expect_used)]
         let spec_json = spec.to_json().expect("Failed to serialize OpenAPI spec");
 
         // No `Box::leak`: `Router::route` takes `&str`, and `Scalar::with_url`
@@ -148,4 +151,45 @@ pub fn info_full(
         .version(version)
         .description(Some(description.into()))
         .build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+    use utoipa::OpenApi;
+
+    #[derive(OpenApi)]
+    #[openapi(info(title = "Test API", version = "1.2.3"))]
+    struct ApiDoc;
+
+    #[tokio::test]
+    async fn serves_openapi_json_spec() {
+        let app: Router = Router::new().with_openapi::<ApiDoc>("/docs");
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/openapi.json")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let json: serde_json::Value =
+            serde_json::from_slice(&bytes).expect("/openapi.json must return valid JSON");
+
+        // A well-formed OpenAPI document carries the version and our info block.
+        assert!(json.get("openapi").is_some(), "missing `openapi` field");
+        assert_eq!(json["info"]["title"], "Test API");
+        assert_eq!(json["info"]["version"], "1.2.3");
+    }
 }

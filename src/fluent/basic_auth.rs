@@ -52,7 +52,7 @@ pub(crate) fn try_authenticate(config: &HttpBasicAuthConfig, headers: &HeaderMap
     if matches!(config.mode, BasicAuthMode::Basic | BasicAuthMode::Either) {
         match try_basic_auth(config, headers) {
             Ok(Some(identity)) => return AuthOutcome::Authenticated(identity),
-            Err(response) => return AuthOutcome::InvalidCredentials(response),
+            Err(response) => return AuthOutcome::InvalidCredentials(*response),
             Ok(None) => {
                 // Check if an Authorization: Basic header was present but didn't match
                 if headers
@@ -70,7 +70,7 @@ pub(crate) fn try_authenticate(config: &HttpBasicAuthConfig, headers: &HeaderMap
     if matches!(config.mode, BasicAuthMode::ApiKey | BasicAuthMode::Either) {
         match try_api_key_auth(config, headers) {
             Ok(Some(identity)) => return AuthOutcome::Authenticated(identity),
-            Err(response) => return AuthOutcome::InvalidCredentials(response),
+            Err(response) => return AuthOutcome::InvalidCredentials(*response),
             Ok(None) => {
                 if headers.get(&config.api_key_header).is_some() {
                     had_credentials = true;
@@ -87,13 +87,15 @@ pub(crate) fn try_authenticate(config: &HttpBasicAuthConfig, headers: &HeaderMap
 }
 
 /// Attempts to authenticate using HTTP Basic Auth.
-#[allow(clippy::result_large_err)]
+///
+/// The error is boxed because a `Response` is large and would otherwise bloat the
+/// success-path `Result`.
 fn try_basic_auth(
     config: &HttpBasicAuthConfig,
     headers: &HeaderMap,
-) -> Result<Option<AuthenticatedIdentity>, Response> {
+) -> Result<Option<AuthenticatedIdentity>, Box<Response>> {
     let auth_header = match headers.get(AUTHORIZATION) {
-        Some(h) => h.to_str().map_err(|_| bad_request_response())?,
+        Some(h) => h.to_str().map_err(|_| Box::new(bad_request_response()))?,
         None => return Ok(None),
     };
 
@@ -102,19 +104,23 @@ fn try_basic_auth(
     }
 
     let encoded = &auth_header[6..];
-    let decoded = BASE64.decode(encoded).map_err(|_| bad_request_response())?;
-    let credentials = String::from_utf8(decoded).map_err(|_| bad_request_response())?;
+    let decoded = BASE64
+        .decode(encoded)
+        .map_err(|_| Box::new(bad_request_response()))?;
+    let credentials = String::from_utf8(decoded).map_err(|_| Box::new(bad_request_response()))?;
 
     let (username, password) = credentials
         .split_once(':')
-        .ok_or_else(bad_request_response)?;
+        .ok_or_else(|| Box::new(bad_request_response()))?;
 
     // Find matching user and verify password. Compare username in constant time
     // too (with non-short-circuiting `&`) so response timing does not reveal
     // whether a username exists, which would enable username enumeration.
     for user in &config.users {
-        let username_match = constant_time_compare(username.as_bytes(), user.username.as_bytes());
-        let password_match = constant_time_compare(password.as_bytes(), user.password.0.as_bytes());
+        let username_match =
+            crate::utils::constant_time_eq(username.as_bytes(), user.username.as_bytes());
+        let password_match =
+            crate::utils::constant_time_eq(password.as_bytes(), user.password.0.as_bytes());
         if username_match & password_match {
             return Ok(Some(AuthenticatedIdentity {
                 method: AuthMethod::BasicAuth,
@@ -132,19 +138,21 @@ fn try_basic_auth(
 }
 
 /// Attempts to authenticate using API Key.
-#[allow(clippy::result_large_err)]
+///
+/// The error is boxed because a `Response` is large and would otherwise bloat the
+/// success-path `Result`.
 fn try_api_key_auth(
     config: &HttpBasicAuthConfig,
     headers: &HeaderMap,
-) -> Result<Option<AuthenticatedIdentity>, Response> {
+) -> Result<Option<AuthenticatedIdentity>, Box<Response>> {
     let api_key = match headers.get(&config.api_key_header) {
-        Some(h) => h.to_str().map_err(|_| bad_request_response())?,
+        Some(h) => h.to_str().map_err(|_| Box::new(bad_request_response()))?,
         None => return Ok(None),
     };
 
     // Find matching API key (constant-time comparison)
     for key_config in &config.api_keys {
-        if constant_time_compare(api_key.as_bytes(), key_config.key.0.as_bytes()) {
+        if crate::utils::constant_time_eq(api_key.as_bytes(), key_config.key.0.as_bytes()) {
             return Ok(Some(AuthenticatedIdentity {
                 method: AuthMethod::ApiKey,
                 user: key_config
@@ -163,14 +171,6 @@ fn try_api_key_auth(
     Ok(None)
 }
 
-/// Constant-time comparison to prevent timing attacks.
-fn constant_time_compare(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    a.iter().zip(b.iter()).fold(0, |acc, (x, y)| acc | (x ^ y)) == 0
-}
-
 /// Creates an unauthorized response with WWW-Authenticate header.
 fn unauthorized_response(config: &HttpBasicAuthConfig) -> Response {
     let mut response = (
@@ -181,9 +181,10 @@ fn unauthorized_response(config: &HttpBasicAuthConfig) -> Response {
 
     // Add WWW-Authenticate header for Basic Auth
     if matches!(config.mode, BasicAuthMode::Basic | BasicAuthMode::Either) {
-        response
-            .headers_mut()
-            .insert("WWW-Authenticate", "Basic realm=\"API\"".parse().unwrap());
+        response.headers_mut().insert(
+            "WWW-Authenticate",
+            http::HeaderValue::from_static("Basic realm=\"API\""),
+        );
     }
 
     response
@@ -376,21 +377,6 @@ mod tests {
         let headers = basic_auth_header();
         let result = authenticate(&config, &headers);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_constant_time_compare_equal() {
-        assert!(constant_time_compare(b"secret", b"secret"));
-    }
-
-    #[test]
-    fn test_constant_time_compare_not_equal() {
-        assert!(!constant_time_compare(b"secret", b"different"));
-    }
-
-    #[test]
-    fn test_constant_time_compare_different_lengths() {
-        assert!(!constant_time_compare(b"short", b"longer"));
     }
 
     #[test]

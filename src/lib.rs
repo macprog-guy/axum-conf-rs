@@ -256,9 +256,15 @@
 //!
 //! See [Middleware Overview](https://github.com/macprog-guy/axum-conf-rs/blob/main/docs/middleware/overview.md) for the full stack.
 #![warn(missing_docs)]
+// Hold library code to explicit error handling: a panic via unwrap/expect must be
+// a deliberate, justified `#[allow(...)]`. Unit tests are exempted via clippy.toml
+// (allow-unwrap-in-tests / allow-expect-in-tests); examples and integration tests
+// are separate crates and unaffected.
+#![deny(clippy::unwrap_used, clippy::expect_used)]
 pub mod config;
 mod error;
 pub mod fluent;
+pub mod resilience;
 mod utils;
 
 #[cfg(feature = "circuit-breaker")]

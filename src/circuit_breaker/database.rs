@@ -2,10 +2,30 @@
 //!
 //! Wraps `sqlx::PgPool` to provide automatic failure tracking.
 
-use super::{CircuitBreakerError, CircuitBreakerRegistry, guarded_call};
+use super::{CircuitBreakerError, CircuitBreakerRegistry, guarded_call_with};
 use sqlx_postgres::PgPool;
 use std::future::Future;
 use std::sync::Arc;
+
+/// Classifies a `sqlx` error as database *degradation* (connectivity / pool
+/// exhaustion) versus a normal application outcome.
+///
+/// Only degradation should trip the circuit breaker. A query returning no rows
+/// (`RowNotFound`), a constraint violation (`Database(_)`), or a decode/type
+/// error means the database **responded** — it is healthy — so those must not
+/// open the circuit. The breaker exists to fail fast when the database is
+/// unreachable, not when a query is simply wrong or empty.
+fn sqlx_is_degradation(e: &sqlx::Error) -> bool {
+    matches!(
+        e,
+        sqlx::Error::Io(_)
+            | sqlx::Error::Tls(_)
+            | sqlx::Error::Protocol(_)
+            | sqlx::Error::PoolTimedOut
+            | sqlx::Error::PoolClosed
+            | sqlx::Error::WorkerCrashed
+    )
+}
 
 /// Database pool wrapper with circuit breaker protection.
 ///
@@ -97,7 +117,7 @@ impl GuardedPool {
         let breaker = self.registry.get_or_default(&self.target);
         let pool = self.pool.clone();
 
-        guarded_call(&breaker, &self.target, f(pool)).await
+        guarded_call_with(&breaker, &self.target, f(pool), sqlx_is_degradation).await
     }
 
     /// Access the underlying pool directly.

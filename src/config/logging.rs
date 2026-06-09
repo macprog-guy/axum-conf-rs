@@ -11,6 +11,7 @@ pub struct LoggingConfig {
     /// Format for log output.
     /// The default format is `default`, which is "full" human-readable format.
     /// Other options are `json`, `compact`, and `pretty`.
+    #[serde(default)]
     pub format: LogFormat,
 
     /// OpenTelemetry configuration (optional).
@@ -64,4 +65,59 @@ pub enum LogFormat {
     /// Similar to default but with better readability for complex log entries.
     /// Useful for development when examining detailed logs.
     Pretty,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Deserialize)]
+    struct Wrapper {
+        #[serde(default)]
+        logging: LoggingConfig,
+    }
+
+    fn parse(toml: &str) -> LoggingConfig {
+        toml::from_str::<Wrapper>(toml)
+            .expect("valid logging config")
+            .logging
+    }
+
+    #[test]
+    fn log_format_default_is_default_variant() {
+        assert!(matches!(LogFormat::default(), LogFormat::Default));
+        // An empty config yields the default format.
+        assert!(matches!(parse("").format, LogFormat::Default));
+    }
+
+    #[test]
+    fn log_format_parses_all_lowercase_variants() {
+        assert!(matches!(
+            parse("[logging]\nformat = \"json\"").format,
+            LogFormat::Json
+        ));
+        assert!(matches!(
+            parse("[logging]\nformat = \"compact\"").format,
+            LogFormat::Compact
+        ));
+        assert!(matches!(
+            parse("[logging]\nformat = \"pretty\"").format,
+            LogFormat::Pretty
+        ));
+        assert!(matches!(
+            parse("[logging]\nformat = \"default\"").format,
+            LogFormat::Default
+        ));
+    }
+
+    #[test]
+    fn log_format_rejects_unknown_variant() {
+        let result = toml::from_str::<Wrapper>("[logging]\nformat = \"verbose\"");
+        assert!(result.is_err(), "unknown log format must be rejected");
+    }
+
+    #[test]
+    fn validate_always_succeeds() {
+        assert!(parse("[logging]\nformat = \"json\"").validate().is_ok());
+    }
 }

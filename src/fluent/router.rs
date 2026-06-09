@@ -17,6 +17,30 @@ use {
     tower_http::{services::fs::ServeDir, set_header::SetResponseHeaderLayer},
 };
 
+/// Guards for the router's background maintenance tasks.
+///
+/// Each [`AbortOnDropHandle`] keeps its periodic task running for as long as the
+/// router lives and aborts it when the router is dropped. Grouping the handles
+/// here keeps the per-task `#[cfg]` gating in one place instead of scattered
+/// across [`FluentRouter`]'s field list.
+#[cfg(any(
+    feature = "rate-limiting",
+    feature = "deduplication",
+    feature = "session-postgres"
+))]
+#[derive(Default)]
+pub(crate) struct TaskGuards {
+    /// Rate-limiter (`tower_governor`) stale-entry cleanup task.
+    #[cfg(feature = "rate-limiting")]
+    pub(crate) governor: Option<AbortOnDropHandle<()>>,
+    /// Request-deduplication expired-entry cleanup task.
+    #[cfg(feature = "deduplication")]
+    pub(crate) dedup_cleanup: Option<AbortOnDropHandle<()>>,
+    /// Postgres session-store expired-row sweep task.
+    #[cfg(feature = "session-postgres")]
+    pub(crate) session_cleanup: Option<AbortOnDropHandle<()>>,
+}
+
 /// Fluent builder for axum::Router with configuration-based middleware setup.
 ///
 /// This wrapper around `axum::Router` provides a fluent API for configuring middleware
@@ -70,12 +94,14 @@ pub struct FluentRouter<State = ()> {
     pub(crate) config: Config,
     pub(crate) state: State,
     pub(crate) inner: Router<State>,
-    #[cfg(feature = "rate-limiting")]
-    pub(crate) governor_handle: Option<AbortOnDropHandle<()>>,
-    #[cfg(feature = "deduplication")]
-    pub(crate) dedup_cleanup_handle: Option<AbortOnDropHandle<()>>,
-    #[cfg(feature = "session-postgres")]
-    pub(crate) session_cleanup_handle: Option<AbortOnDropHandle<()>>,
+    /// Guards for background maintenance tasks; each handle aborts its task when
+    /// the router is dropped.
+    #[cfg(any(
+        feature = "rate-limiting",
+        feature = "deduplication",
+        feature = "session-postgres"
+    ))]
+    pub(crate) task_guards: TaskGuards,
     pub(crate) panic_channel: Option<tokio::sync::mpsc::Sender<String>>,
     pub(crate) shutdown_notifier: ShutdownNotifier,
     /// Optional application-supplied readiness check, composed with the built-in
@@ -200,12 +226,12 @@ where
             config: base_config,
             state,
             inner: Router::new(),
-            #[cfg(feature = "rate-limiting")]
-            governor_handle: None,
-            #[cfg(feature = "deduplication")]
-            dedup_cleanup_handle: None,
-            #[cfg(feature = "session-postgres")]
-            session_cleanup_handle: None,
+            #[cfg(any(
+                feature = "rate-limiting",
+                feature = "deduplication",
+                feature = "session-postgres"
+            ))]
+            task_guards: TaskGuards::default(),
             panic_channel: None,
             shutdown_notifier: ShutdownNotifier::default(),
             readiness_check: None,

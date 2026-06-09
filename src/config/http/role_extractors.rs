@@ -114,12 +114,13 @@ impl<S: Send + Sync, R: ApplicationRole> FromRequestParts<S> for WithRole<R> {
         parts: &mut Parts,
         _state: &S,
     ) -> std::result::Result<Self, Self::Rejection> {
-        let identity = AuthenticatedIdentity::arc_from_extensions(&parts.extensions)
-            .map(|arc| (*arc).clone())
+        // Borrow the shared identity to check the role; only clone on success so
+        // a 403 (the common authorization-failure path) pays no deep copy.
+        let arc = AuthenticatedIdentity::arc_from_extensions(&parts.extensions)
             .ok_or((StatusCode::UNAUTHORIZED, "Authentication required"))?;
 
-        if identity.roles.iter().any(|r| r == R::ROLE) {
-            Ok(WithRole(identity, PhantomData))
+        if arc.roles.iter().any(|r| r == R::ROLE) {
+            Ok(WithRole((*arc).clone(), PhantomData))
         } else {
             Err((StatusCode::FORBIDDEN, "Insufficient role"))
         }
@@ -158,15 +159,14 @@ impl<S: Send + Sync, R: ApplicationRoles> FromRequestParts<S> for AnyRole<R> {
         parts: &mut Parts,
         _state: &S,
     ) -> std::result::Result<Self, Self::Rejection> {
-        let identity = AuthenticatedIdentity::arc_from_extensions(&parts.extensions)
-            .map(|arc| (*arc).clone())
+        let arc = AuthenticatedIdentity::arc_from_extensions(&parts.extensions)
             .ok_or((StatusCode::UNAUTHORIZED, "Authentication required"))?;
 
         if R::ROLES
             .iter()
-            .any(|required| identity.roles.iter().any(|r| r == required))
+            .any(|required| arc.roles.iter().any(|r| r == required))
         {
-            Ok(AnyRole(identity, PhantomData))
+            Ok(AnyRole((*arc).clone(), PhantomData))
         } else {
             Err((StatusCode::FORBIDDEN, "Insufficient role"))
         }
@@ -205,15 +205,14 @@ impl<S: Send + Sync, R: ApplicationRoles> FromRequestParts<S> for AllRoles<R> {
         parts: &mut Parts,
         _state: &S,
     ) -> std::result::Result<Self, Self::Rejection> {
-        let identity = AuthenticatedIdentity::arc_from_extensions(&parts.extensions)
-            .map(|arc| (*arc).clone())
+        let arc = AuthenticatedIdentity::arc_from_extensions(&parts.extensions)
             .ok_or((StatusCode::UNAUTHORIZED, "Authentication required"))?;
 
         if R::ROLES
             .iter()
-            .all(|required| identity.roles.iter().any(|r| r == required))
+            .all(|required| arc.roles.iter().any(|r| r == required))
         {
-            Ok(AllRoles(identity, PhantomData))
+            Ok(AllRoles((*arc).clone(), PhantomData))
         } else {
             Err((StatusCode::FORBIDDEN, "Insufficient role"))
         }

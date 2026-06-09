@@ -229,6 +229,7 @@ impl Config<()> {
     ///
     /// let config = Config::new();
     /// ```
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -266,13 +267,12 @@ where
     ///
     /// Parses a configuration string in TOML format into a Config struct.
     ///
-    /// Note: this does **not** consult `RUST_ENV`, so [`is_production`] defaults
-    /// to `true` (the fail-safe posture — restrictive CORS, OIDC audience and
-    /// proxy-header fail-closed). Use [`from_toml_file`] / [`from_rust_env`] to
+    /// Note: this does **not** consult `RUST_ENV`, so the resolved production flag
+    /// defaults to `true` (the fail-safe posture — restrictive CORS, OIDC audience
+    /// and proxy-header fail-closed). Use [`from_toml_file`] / [`from_rust_env`] to
     /// resolve it from the environment, or [`with_production`] to set it
     /// explicitly when building config programmatically (e.g. in tests/dev).
     ///
-    /// [`is_production`]: Config::is_production
     /// [`from_toml_file`]: Config::from_toml_file
     /// [`from_rust_env`]: Config::from_rust_env
     /// [`with_production`]: Config::with_production
@@ -292,72 +292,84 @@ where
     }
 
     /// Sets the HTTP server bind address of the HttpConfig.
+    #[must_use]
     pub fn with_bind_addr<S: AsRef<str>>(mut self, addr: S) -> Self {
         self.http.bind_addr = addr.as_ref().into();
         self
     }
 
     /// Sets the HTTP server bind port of the HttpConfig.
+    #[must_use]
     pub fn with_bind_port(mut self, port: u16) -> Self {
         self.http.bind_port = port;
         self
     }
 
     /// Sets the maximum number of concurrent requests of the HttpConfig.
+    #[must_use]
     pub fn with_max_concurrent_requests(mut self, max: u32) -> Self {
         self.http.max_concurrent_requests = max;
         self
     }
 
     /// Sets the request timeout duration of the HttpConfig.
+    #[must_use]
     pub fn with_request_timeout(mut self, timeout: Duration) -> Self {
         self.http.request_timeout = Some(timeout);
         self
     }
 
     /// Sets the X-Frame-Options header configuration of the HttpConfig.
+    #[must_use]
     pub fn with_x_frame_options(mut self, x_frame: HttpXFrameConfig) -> Self {
         self.http.x_frame_options = x_frame;
         self
     }
 
     /// Enables or disables the X-Content-Type-Options header in the HttpConfig.
+    #[must_use]
     pub fn with_x_content_type_nosniff(mut self, enable: bool) -> Self {
         self.http.x_content_type_nosniff = enable;
         self
     }
 
     /// Sets the maximum payload size in bytes of the HttpConfig.
+    #[must_use]
     pub fn with_max_payload_size_bytes(mut self, size: u64) -> Self {
         self.http.max_payload_size_bytes = Byte::from_u64(size);
         self
     }
 
     /// Enables or disables compression support in the HttpConfig.
+    #[must_use]
     pub fn with_compression(mut self, enable: bool) -> Self {
         self.http.support_compression = enable;
         self
     }
 
     /// Enables or disables trailing slash trimming in the HttpConfig.
+    #[must_use]
     pub fn with_trim_trailing_slash(mut self, enable: bool) -> Self {
         self.http.trim_trailing_slash = enable;
         self
     }
 
     /// Sets the liveness route path of the HttpConfig.
+    #[must_use]
     pub fn with_liveness_route(mut self, route: &str) -> Self {
         self.http.liveness_route = route.into();
         self
     }
 
     /// Sets the readiness route path of the HttpConfig.
+    #[must_use]
     pub fn with_readiness_route(mut self, route: &str) -> Self {
         self.http.readiness_route = route.into();
         self
     }
 
     /// Sets the metrics route path of the HttpConfig.
+    #[must_use]
     pub fn with_metrics_route(mut self, route: &str) -> Self {
         self.http.metrics_route = route.into();
         self
@@ -365,6 +377,7 @@ where
 
     /// Sets the Postgres database connection URL of the DatabaseConfig.
     #[cfg(feature = "postgres")]
+    #[must_use]
     pub fn with_pg_url(mut self, url: &str) -> Self {
         self.database.url = url.into();
         self
@@ -372,6 +385,7 @@ where
 
     /// Sets the maximum pool size of the DatabaseConfig.
     #[cfg(feature = "postgres")]
+    #[must_use]
     pub fn with_pg_max_pool_size(mut self, size: u8) -> Self {
         self.database.max_pool_size = size;
         self
@@ -379,12 +393,14 @@ where
 
     /// Sets the maximum idle time duration of the DatabaseConfig.
     #[cfg(feature = "postgres")]
+    #[must_use]
     pub fn with_pg_max_idle_time(mut self, duration: Duration) -> Self {
         self.database.max_idle_time = Some(duration);
         self
     }
 
     /// Sets the log format of the LoggingConfig.
+    #[must_use]
     pub fn with_log_format(mut self, format: LogFormat) -> Self {
         self.logging.format = format;
         self
@@ -394,6 +410,7 @@ where
     /// The default OIDC configuration is empty and must be set explicitly
     /// either programmatically or via TOML.
     #[cfg(feature = "keycloak")]
+    #[must_use]
     pub fn with_oidc_config(mut self, oidc_config: HttpOidcConfig) -> Self {
         self.http.oidc = Some(oidc_config);
         self
@@ -402,6 +419,7 @@ where
     /// Sets the CORS configuration of the HttpConfig.
     /// The default CORS configuration is empty resulting in permissive CORS configuration.
     /// Strict CORS must be set explicitly either programmatically or via TOML.
+    #[must_use]
     pub fn with_cors_config(mut self, cors_config: HttpCorsConfig) -> Self {
         self.http.cors = Some(cors_config);
         self
@@ -410,6 +428,7 @@ where
     /// Sets the deduplication configuration of the HttpConfig.
     /// The default deduplication configuration None results in no deduplication.
     /// Deduplication must be set explicitly either programmatically or via TOML.
+    #[must_use]
     pub fn with_deduplication_config(mut self, dedup_config: HttpDeduplicationConfig) -> Self {
         self.http.deduplication = Some(dedup_config);
         self
@@ -417,6 +436,7 @@ where
 
     /// Sets the middleware configuration of the HttpConfig.
     /// This approach activates only the specified middlewares.
+    #[must_use]
     pub fn with_included_middlewares(mut self, middlewares: Vec<HttpMiddleware>) -> Self {
         self.http.middleware = Some(HttpMiddlewareConfig::Include(middlewares));
         self
@@ -424,6 +444,7 @@ where
 
     /// Sets the middleware configuration of the HttpConfig.
     /// This approach activates all middlewares except the specified ones.
+    #[must_use]
     pub fn with_excluded_middlewares(mut self, middlewares: Vec<HttpMiddleware>) -> Self {
         self.http.middleware = Some(HttpMiddlewareConfig::Exclude(middlewares));
         self
@@ -431,6 +452,7 @@ where
 
     /// Sets the OpenTelemetry configuration of the LoggingConfig.
     #[cfg(feature = "opentelemetry")]
+    #[must_use]
     pub fn with_opentelemetry_config(mut self, otel_config: OpenTelemetryConfig) -> Self {
         self.logging.opentelemetry = Some(otel_config);
         self
@@ -452,6 +474,7 @@ where
     ///
     /// assert_eq!(config.app.value, 42);
     /// ```
+    #[must_use]
     pub fn with_app(mut self, app: T) -> Self {
         self.app = app;
         self

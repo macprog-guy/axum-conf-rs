@@ -16,6 +16,8 @@ mod deduplication;
 mod helmet;
 #[cfg(feature = "payload-limit")]
 mod max_payload_size;
+#[cfg(feature = "metrics")]
+mod metrics;
 #[cfg(feature = "opentelemetry")]
 mod opentelemetry;
 #[cfg(feature = "path-normalization")]
@@ -30,6 +32,7 @@ mod catch_panic;
 mod config;
 mod interactions;
 mod liveness_readiness;
+mod ordering;
 mod readiness;
 mod request_id;
 mod static_files;

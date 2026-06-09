@@ -102,9 +102,46 @@ pub async fn guarded_call<F, T, E>(
 where
     F: Future<Output = Result<T, E>>,
 {
+    // Default classifier: every error counts as a failure.
+    guarded_call_with(breaker, target, f, |_| true).await
+}
+
+/// Execute a call through a circuit breaker, classifying which errors count as
+/// failures.
+///
+/// Identical to [`guarded_call`], but `is_failure` decides whether a given error
+/// indicates the target is **degraded** (and should trip the breaker) or is a
+/// normal application outcome (and should not). For example, a database query
+/// returning no rows is not a sign the database is down, so it should not count
+/// toward opening the circuit. A non-failure error is recorded as a *neutral*
+/// outcome (see [`CircuitBreakerState::record_neutral`]): it clears the
+/// consecutive-failure streak when closed, but does **not** advance a half-open
+/// circuit toward closing — only a genuine success does that.
+///
+/// A call timeout always counts as a failure regardless of `is_failure`.
+pub async fn guarded_call_with<F, T, E>(
+    breaker: &Arc<CircuitBreakerState>,
+    target: &str,
+    f: F,
+    is_failure: impl Fn(&E) -> bool,
+) -> Result<T, CircuitBreakerError<E>>
+where
+    F: Future<Output = Result<T, E>>,
+{
     if !breaker.should_allow() {
         return Err(CircuitBreakerError::circuit_open(target));
     }
+
+    let record = |breaker: &CircuitBreakerState, e: &E| {
+        if is_failure(e) {
+            breaker.record_failure();
+        } else {
+            // The target responded; the error is an application-level outcome,
+            // not degradation. Record it as neutral (clears the failure streak
+            // when closed, but does not count as half-open recovery progress).
+            breaker.record_neutral();
+        }
+    };
 
     // Check for call timeout
     if let Some(timeout_duration) = breaker.call_timeout() {
@@ -114,7 +151,7 @@ where
                 Ok(result)
             }
             Ok(Err(e)) => {
-                breaker.record_failure();
+                record(breaker, &e);
                 Err(CircuitBreakerError::call_failed(e))
             }
             Err(_) => {
@@ -129,7 +166,7 @@ where
                 Ok(result)
             }
             Err(e) => {
-                breaker.record_failure();
+                record(breaker, &e);
                 Err(CircuitBreakerError::call_failed(e))
             }
         }
@@ -166,6 +203,32 @@ mod tests {
         assert!(result.is_err());
         assert!(result.unwrap_err().is_call_failed());
         assert_eq!(breaker.failure_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn classifier_excludes_non_failures() {
+        let config = CircuitBreakerTargetConfig {
+            failure_threshold: 1,
+            ..Default::default()
+        };
+        let breaker = Arc::new(CircuitBreakerState::new(config));
+
+        // An error classified as NOT degradation (e.g. "no rows") must not trip
+        // the circuit — it is recorded as a success instead.
+        let result: Result<i32, CircuitBreakerError<&str>> =
+            guarded_call_with(&breaker, "db", async { Err("no rows") }, |_| false).await;
+        assert!(result.is_err());
+        assert_eq!(breaker.current_state(), CircuitState::Closed);
+        assert_eq!(breaker.failure_count(), 0);
+
+        // A degradation error (classified true) opens the circuit at threshold 1.
+        let result: Result<i32, CircuitBreakerError<&str>> =
+            guarded_call_with(&breaker, "db", async { Err("connection refused") }, |_| {
+                true
+            })
+            .await;
+        assert!(result.is_err());
+        assert_eq!(breaker.current_state(), CircuitState::Open);
     }
 
     #[tokio::test]

@@ -96,6 +96,22 @@ impl JwksProvider {
         Ok(provider)
     }
 
+    /// Test-only constructor: build a provider from an in-memory JWK set, with no
+    /// network fetch and no background refresh task. The `jwks_url` points at an
+    /// unreachable address so a refresh-on-key-miss fails (yielding `Unverifiable`).
+    #[cfg(test)]
+    fn from_keys_for_test(jwks: &JwkSet, issuer: &str, audiences: &[String]) -> Arc<Self> {
+        let keys = Self::build_keys(jwks, issuer, audiences, false);
+        Arc::new(Self {
+            keys: RwLock::new(keys),
+            jwks_url: "http://127.0.0.1:1/unreachable".to_string(),
+            http_client: openidconnect::reqwest::Client::new(),
+            issuer: issuer.to_string(),
+            audiences: audiences.to_vec(),
+            is_production: false,
+        })
+    }
+
     /// Re-fetch JWKS from the provider and rebuild the cached keys.
     pub async fn refresh(&self) -> Result<()> {
         let jwks = Self::fetch_jwks(&self.http_client, &self.jwks_url).await?;
@@ -168,49 +184,44 @@ impl JwksProvider {
         map
     }
 
-    /// Fetches the JWKS, retrying transient failures with exponential backoff
-    /// (3 attempts: ~100ms, 200ms, then give up).
+    /// Fetches the JWKS, retrying transient (network/HTTP) failures with
+    /// full-jitter exponential backoff via [`crate::resilience::retry_transient`].
+    /// Deserialization failures are not transient and are returned immediately.
     async fn fetch_jwks_with_retry(
         client: &openidconnect::reqwest::Client,
         url: &str,
     ) -> Result<JwkSet> {
-        const MAX_ATTEMPTS: u32 = 3;
-        let mut delay = std::time::Duration::from_millis(100);
-        let mut last_err = None;
-        for attempt in 1..=MAX_ATTEMPTS {
-            match Self::fetch_jwks(client, url).await {
-                Ok(jwks) => return Ok(jwks),
-                Err(e) => {
-                    tracing::warn!(attempt, max = MAX_ATTEMPTS, error = %e, "JWKS fetch failed");
-                    last_err = Some(e);
-                    if attempt < MAX_ATTEMPTS {
-                        tokio::time::sleep(delay).await;
-                        delay *= 2;
-                    }
-                }
-            }
-        }
-        Err(last_err.unwrap_or_else(|| Error::config("JWKS fetch failed")))
+        crate::resilience::retry_transient(crate::resilience::RetryPolicy::default(), || {
+            Self::fetch_jwks(client, url)
+        })
+        .await
     }
 
     async fn fetch_jwks(client: &openidconnect::reqwest::Client, url: &str) -> Result<JwkSet> {
+        // Network/HTTP failures are transient (kind `Io`) so `retry_transient`
+        // retries them; a deserialization failure is deterministic (`config`).
         let resp = client
             .get(url)
             .send()
             .await
-            .map_err(|e| Error::config(format!("JWKS fetch failed: {e}")))?;
+            .map_err(|e| Error::io(format!("JWKS fetch failed: {e}")))?;
 
         if !resp.status().is_success() {
-            return Err(Error::config(format!(
-                "JWKS fetch returned status {}",
-                resp.status()
-            )));
+            let status = resp.status();
+            let msg = format!("JWKS fetch returned status {status}");
+            // 4xx is a deterministic misconfiguration (wrong URL / auth) — don't
+            // retry it; 5xx and other statuses are treated as transient.
+            return Err(if status.is_client_error() {
+                Error::config(msg)
+            } else {
+                Error::io(msg)
+            });
         }
 
         let body = resp
             .text()
             .await
-            .map_err(|e| Error::config(format!("JWKS response read failed: {e}")))?;
+            .map_err(|e| Error::io(format!("JWKS response read failed: {e}")))?;
 
         serde_json::from_str::<JwkSet>(&body)
             .map_err(|e| Error::config(format!("JWKS deserialization failed: {e}")))
@@ -485,6 +496,96 @@ pub(crate) async fn bearer_auth_middleware(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // --- ID-token signature re-verification --------------------------------
+
+    const TEST_KID: &str = "test-kid";
+    const TEST_ISSUER: &str = "https://issuer.example";
+    const TEST_SECRET: &[u8] = b"this-is-a-test-hmac-signing-secret";
+
+    /// Builds a provider whose only key is a symmetric HS256 key. HS256 exercises
+    /// the same kid-lookup → decode → three-way-result path as the production
+    /// RS256 keys (the real RS256 flow is covered by the Keycloak integration test).
+    fn test_provider() -> Arc<JwksProvider> {
+        use base64::Engine;
+        let k = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(TEST_SECRET);
+        let jwk_json = format!(r#"{{"kty":"oct","kid":"{TEST_KID}","alg":"HS256","k":"{k}"}}"#);
+        let jwk: jsonwebtoken::jwk::Jwk = serde_json::from_str(&jwk_json).unwrap();
+        let jwks = JwkSet { keys: vec![jwk] };
+        JwksProvider::from_keys_for_test(&jwks, TEST_ISSUER, &[])
+    }
+
+    fn sign(kid: &str, claims: &serde_json::Value) -> String {
+        let mut header = jsonwebtoken::Header::new(Algorithm::HS256);
+        header.kid = Some(kid.to_string());
+        jsonwebtoken::encode(
+            &header,
+            claims,
+            &jsonwebtoken::EncodingKey::from_secret(TEST_SECRET),
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn verify_signature_accepts_valid_even_when_expired() {
+        let provider = test_provider();
+        // `exp` in the past: re-verification deliberately ignores exp, so a live
+        // session whose stored ID token has expired must still verify as Valid.
+        let token = sign(
+            TEST_KID,
+            &serde_json::json!({"sub":"alice","iss":TEST_ISSUER,"exp":0}),
+        );
+        assert_eq!(
+            provider.verify_signature(&token).await,
+            SignatureCheck::Valid
+        );
+    }
+
+    #[tokio::test]
+    async fn verify_signature_rejects_tampered_token() {
+        let provider = test_provider();
+        let token = sign(
+            TEST_KID,
+            &serde_json::json!({"sub":"alice","iss":TEST_ISSUER,"exp":0}),
+        );
+        // Flip the last character of the signature.
+        let mut tampered = token;
+        let last = tampered.pop().unwrap();
+        tampered.push(if last == 'A' { 'B' } else { 'A' });
+        assert_eq!(
+            provider.verify_signature(&tampered).await,
+            SignatureCheck::Invalid
+        );
+    }
+
+    #[tokio::test]
+    async fn verify_signature_rejects_wrong_issuer() {
+        let provider = test_provider();
+        let token = sign(
+            TEST_KID,
+            &serde_json::json!({"sub":"alice","iss":"https://evil.example","exp":0}),
+        );
+        assert_eq!(
+            provider.verify_signature(&token).await,
+            SignatureCheck::Invalid
+        );
+    }
+
+    #[tokio::test]
+    async fn verify_signature_unknown_kid_is_unverifiable() {
+        let provider = test_provider();
+        // A token whose kid is absent from the JWKS: a refresh is attempted (and
+        // fails against the unreachable URL), so the result is Unverifiable rather
+        // than Invalid — the caller falls back to the record's HMAC integrity.
+        let token = sign(
+            "unknown-kid",
+            &serde_json::json!({"sub":"alice","iss":TEST_ISSUER}),
+        );
+        assert_eq!(
+            provider.verify_signature(&token).await,
+            SignatureCheck::Unverifiable
+        );
+    }
 
     #[test]
     fn test_claims_to_identity_full() {

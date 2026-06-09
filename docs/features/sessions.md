@@ -331,6 +331,25 @@ Both `session-postgres` and `session-redis` imply `session`. The Postgres store
 additionally requires the `postgres` feature (pulled in automatically) and a
 configured `[database]` section.
 
+### Signing key (required for external stores)
+
+External stores persist session records outside the process, so the records are
+**HMAC-SHA256 tagged** with an operator-supplied key and rejected on load if the
+tag doesn't verify. This stops an attacker with write access to the database or
+cache from forging a session (e.g. tampering with the stored OIDC ID-token claims
+to escalate roles). Selecting a `postgres` or `redis` store **without** a key
+fails startup validation.
+
+```toml
+[http]
+# Required for postgres/redis stores. Must be >= 32 bytes and STABLE across
+# replicas and restarts (a per-process key would reject other replicas' sessions
+# and invalidate everything on restart). Keep it secret; supports env substitution.
+session_signing_key = "{{ SESSION_SIGNING_KEY }}"
+```
+
+The in-memory store needs no key — its records never leave the process.
+
 ### Custom Stores
 
 For a backend the library doesn't ship (e.g. Moka, DynamoDB, or your own),

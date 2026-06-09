@@ -101,7 +101,8 @@ where
             #[cfg(feature = "session-postgres")]
             crate::SessionStoreConfig::Postgres => {
                 use super::session_store::PostgresSessionStore;
-                let store = PostgresSessionStore::new(self.db_pool.clone());
+                let signing_key = self.session_signing_key_bytes()?;
+                let store = PostgresSessionStore::new(self.db_pool.clone(), signing_key);
                 store.migrate().await.map_err(|e| {
                     crate::Error::database(format!("session store migration failed: {e}"))
                 })?;
@@ -139,15 +140,37 @@ where
                 pool.wait_for_connect()
                     .await
                     .map_err(|e| crate::Error::config(format!("redis connect failed: {e}")))?;
+                let signing_key = self.session_signing_key_bytes()?;
                 tracing::trace!(
                     secure,
                     ?same_site,
                     "Session middleware enabled (redis store)"
                 );
-                self = self.apply_session_layer(RedisSessionStore::new(pool), secure, same_site);
+                self = self.apply_session_layer(
+                    RedisSessionStore::new(pool, signing_key),
+                    secure,
+                    same_site,
+                );
             }
         }
         Ok(self)
+    }
+
+    /// Returns the configured session signing key as bytes for HMAC-tagging
+    /// external session records. `HttpConfig::validate` guarantees this is present
+    /// (and long enough) whenever an external store is selected.
+    #[cfg(any(feature = "session-postgres", feature = "session-redis"))]
+    fn session_signing_key_bytes(&self) -> crate::Result<std::sync::Arc<[u8]>> {
+        self.config
+            .http
+            .session_signing_key
+            .as_ref()
+            .map(|k| std::sync::Arc::<[u8]>::from(k.0.as_bytes()))
+            .ok_or_else(|| {
+                crate::Error::config(
+                    "session_signing_key is required for an external session store",
+                )
+            })
     }
 
     /// Applies the session-manager layer for the given store, honoring the
@@ -171,6 +194,13 @@ where
     /// Use this for backends the library does not provide built-in (e.g. a
     /// Moka, DynamoDB, or custom store). Cookie attributes still come from the
     /// `session_*` config fields.
+    ///
+    /// # Integrity
+    ///
+    /// Records persisted by a caller-supplied store are **not** HMAC-tagged by
+    /// this library (unlike the built-in Postgres/Redis stores). If your store
+    /// persists records outside the process, you are responsible for their
+    /// integrity — see the security note on [`Self::setup_session_handling`].
     ///
     /// ```rust,ignore
     /// let router = FluentRouter::without_state(config)?
@@ -414,13 +444,31 @@ where
             crate::XFrameOptions::SameOrigin => axum_helmet::XFrameOptions::SameOrigin,
             #[allow(deprecated)]
             crate::XFrameOptions::AllowFrom(url) => {
-                axum_helmet::XFrameOptions::AllowFrom(url.clone())
+                // ALLOW-FROM is deprecated; if the URL cannot form a valid header
+                // value, fall back to the most restrictive option (DENY) rather
+                // than letting the whole security-headers layer fail to build and
+                // shipping *no* headers at all.
+                if http::HeaderValue::from_str(&format!("ALLOW-FROM {url}")).is_ok() {
+                    axum_helmet::XFrameOptions::AllowFrom(url.clone())
+                } else {
+                    tracing::error!(
+                        %url,
+                        "Invalid X-Frame-Options ALLOW-FROM URL; falling back to DENY"
+                    );
+                    axum_helmet::XFrameOptions::Deny
+                }
             }
         };
         helmet = helmet.add(x_frame);
         match helmet.into_layer() {
             Ok(layer) => self.inner = self.inner.layer(layer),
-            Err(e) => tracing::warn!(error = %e, "Failed to build HelmetLayer"),
+            // Only valid headers are added above, so this is effectively
+            // unreachable — but never degrade silently to a header-less response.
+            Err(e) => tracing::error!(
+                error = %e,
+                "Failed to build the security-headers layer; no security headers will be \
+                 applied. This indicates invalid security-header configuration."
+            ),
         }
 
         // Optional HSTS — only meaningful over HTTPS, hence opt-in via config.

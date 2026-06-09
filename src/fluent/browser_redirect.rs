@@ -67,11 +67,14 @@ pub(crate) async fn browser_redirect_middleware(
         return next.run(request).await;
     }
 
-    // Store original URL in session for post-login redirect
+    // Store original URL in session for post-login redirect. `path_and_query`
+    // is already a same-origin relative path, but validate it anyway (defense in
+    // depth) so only safe targets are ever persisted for later redirection.
     let original_url = request
         .uri()
         .path_and_query()
         .map(|pq| pq.to_string())
+        .filter(|url| crate::utils::is_safe_local_path(url))
         .unwrap_or_else(|| "/".to_string());
 
     if let Some(session) = request.extensions().get::<Session>() {

@@ -15,7 +15,11 @@ use axum::{
     http::{Request, StatusCode, header},
     routing::get,
 };
-use axum_conf::{Config, FluentRouter, HttpMiddleware};
+use axum_conf::{Config, FluentRouter, HttpMiddleware, Sensitive};
+
+/// A stable 32-byte signing key shared by both router instances — the
+/// multi-replica scenario the HMAC tagging must support.
+const TEST_SIGNING_KEY: &str = "test-session-signing-key-0123456789ab";
 use tower::ServiceExt;
 use tower_sessions::Session;
 
@@ -100,6 +104,7 @@ async fn postgres_session_store_round_trip() {
         let mut config = Config::new();
         config.http.with_metrics = false; // avoid the global Prometheus registry across instances
         config.http.session_store = SessionStoreConfig::Postgres;
+        config.http.session_signing_key = Some(Sensitive::from(TEST_SIGNING_KEY));
         config.database.url = url.clone();
         config.with_excluded_middlewares(vec![HttpMiddleware::RateLimiting])
     };
@@ -155,6 +160,7 @@ async fn redis_session_store_round_trip() {
         let mut config = Config::new();
         config.http.with_metrics = false;
         config.http.session_store = SessionStoreConfig::Redis { url: url.clone() };
+        config.http.session_signing_key = Some(Sensitive::from(TEST_SIGNING_KEY));
         config.with_excluded_middlewares(vec![HttpMiddleware::RateLimiting])
     };
 

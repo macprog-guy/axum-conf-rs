@@ -27,6 +27,9 @@ pub use staticdir::*;
 
 use {crate::Result, serde::Deserialize, std::fmt, std::time::Duration};
 
+#[cfg(feature = "session")]
+use crate::utils::Sensitive;
+
 /// X-Frame-Options header value configuration.
 ///
 /// This enum is used for configuration parsing. When the `security-headers` feature
@@ -110,6 +113,23 @@ pub enum SessionStoreConfig {
         /// Redis connection URL, e.g. `redis://127.0.0.1:6379`.
         url: String,
     },
+}
+
+#[cfg(feature = "session")]
+impl SessionStoreConfig {
+    /// Whether this store persists records **outside** the process (Postgres or
+    /// Redis), and therefore needs a signing key for tamper-evident HMAC tagging.
+    /// The in-memory store keeps records in-process, so it needs no key.
+    #[must_use]
+    pub(crate) fn is_external(&self) -> bool {
+        match self {
+            SessionStoreConfig::Memory => false,
+            #[cfg(feature = "session-postgres")]
+            SessionStoreConfig::Postgres => true,
+            #[cfg(feature = "session-redis")]
+            SessionStoreConfig::Redis { .. } => true,
+        }
+    }
 }
 
 ///
@@ -245,6 +265,18 @@ pub struct HttpConfig {
     #[cfg(feature = "session")]
     #[serde(default)]
     pub session_store: SessionStoreConfig,
+
+    /// Secret used to HMAC-tag session records stored in an **external** backend
+    /// (Postgres/Redis), so a tampered or forged record is rejected on load.
+    ///
+    /// **Required** when `session_store` is `postgres` or `redis`; the value must
+    /// be stable across replicas/restarts (a random per-process key would reject
+    /// other replicas' sessions). It is ignored for the in-memory store, whose
+    /// records never leave the process. Supports `{{ ENV_VAR }}` substitution and
+    /// must be at least 32 bytes.
+    #[cfg(feature = "session")]
+    #[serde(default)]
+    pub session_signing_key: Option<Sensitive<String>>,
 
     /// OIDC authentication configuration.
     /// Only included if the "keycloak" feature is enabled.
@@ -484,6 +516,42 @@ impl HttpConfig {
             );
         }
 
+        // A configured-but-empty proxy shared secret (e.g. an unset `{{ VAR }}`)
+        // is dangerous: it must never be honored as a trust anchor. Fail loudly so
+        // the operator notices the unset secret instead of silently relying on it.
+        if let Some(proxy) = &self.proxy_oidc
+            && proxy
+                .shared_secret
+                .as_ref()
+                .is_some_and(|s| s.0.trim().is_empty())
+        {
+            return Err(crate::Error::config(
+                "[http.proxy_oidc] shared_secret is configured but empty (e.g. an unset \
+                 environment variable). Remove it or provide a non-empty secret.",
+            ));
+        }
+
+        // An external session store persists records outside the process, so they
+        // must be HMAC-tagged with a stable, operator-supplied key (fail closed).
+        #[cfg(feature = "session")]
+        if self.session_store.is_external() {
+            match &self.session_signing_key {
+                None => {
+                    return Err(crate::Error::config(
+                        "session_store is external (postgres/redis) but no session_signing_key \
+                         is configured. Set [http] session_signing_key (>= 32 bytes, stable \
+                         across replicas) so session records can be HMAC-tagged against tampering.",
+                    ));
+                }
+                Some(key) if key.0.len() < 32 => {
+                    return Err(crate::Error::config(
+                        "session_signing_key is too short; it must be at least 32 bytes.",
+                    ));
+                }
+                Some(_) => {}
+            }
+        }
+
         // Warn if CORS is not explicitly configured (will use permissive defaults)
         if self.cors.is_none() {
             tracing::warn!(
@@ -525,6 +593,8 @@ impl Default for HttpConfig {
             session_same_site: SameSiteConfig::default(),
             #[cfg(feature = "session")]
             session_store: SessionStoreConfig::default(),
+            #[cfg(feature = "session")]
+            session_signing_key: None,
             #[cfg(feature = "keycloak")]
             oidc: None,
             #[cfg(feature = "basic-auth")]
@@ -604,6 +674,41 @@ impl<'de> Deserialize<'de> for HttpXFrameConfig {
 mod tests {
     use super::*;
     use crate::Config;
+
+    #[cfg(feature = "session-postgres")]
+    #[test]
+    fn external_session_store_requires_signing_key() {
+        let mut config = Config::<()>::from_toml("").unwrap();
+        config.http.session_store = SessionStoreConfig::Postgres;
+
+        // No key → validation fails.
+        assert!(
+            config.http.validate().is_err(),
+            "external store without a signing key must fail validation"
+        );
+
+        // Too-short key → fails.
+        config.http.session_signing_key = Some(Sensitive::from("short"));
+        assert!(config.http.validate().is_err(), "short key must fail");
+
+        // A sufficiently long key → passes.
+        config.http.session_signing_key = Some(Sensitive::from("0123456789abcdef0123456789abcdef"));
+        assert!(config.http.validate().is_ok(), "valid key should pass");
+    }
+
+    #[cfg(feature = "session")]
+    #[test]
+    fn memory_session_store_needs_no_signing_key() {
+        let config = Config::<()>::from_toml("").unwrap();
+        assert!(matches!(
+            config.http.session_store,
+            SessionStoreConfig::Memory
+        ));
+        assert!(
+            config.http.validate().is_ok(),
+            "in-memory store must not require a signing key"
+        );
+    }
 
     #[test]
     fn test_x_content_type_nosniff_default() {

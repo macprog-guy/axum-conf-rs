@@ -57,11 +57,17 @@ x_frame_options = "DENY"              # X-Frame-Options (default: "DENY")
 session_secure_cookie = true          # Secure cookie attribute (default: true)
 session_same_site = "strict"          # "strict" | "lax" | "none" (default: "strict")
 
+# Signing key for HMAC-tagging records in an EXTERNAL session store
+# (postgres/redis). Required for those stores; ignored for the in-memory store.
+# Must be >= 32 bytes and stable across replicas/restarts. Keep secret.
+# session_signing_key = "{{ SESSION_SIGNING_KEY }}"
+
 # =============================================================================
 # Session Store (requires 'session' feature)
 # =============================================================================
 # Selects where sessions are persisted. The default in-memory store is
 # per-process, so use postgres or redis for multi-replica deployments.
+# NOTE: postgres/redis require [http] session_signing_key (see above).
 [http.session_store]
 type = "memory"                       # default — per-process, no shared state
 
@@ -121,12 +127,21 @@ auto_redirect_to_login = false                             # Redirect browsers t
 # Reads identity from HTTP headers set by an authenticating reverse proxy
 # (e.g., oauth2-proxy with Nginx auth_request). All headers have sensible
 # defaults matching oauth2-proxy conventions.
+#
+# SECURITY: identity/role headers are honored only from a TRUSTED proxy. Set a
+# trust anchor (trusted_proxies and/or shared_secret). With neither set, headers
+# are IGNORED in production and only honored (with a warning) outside production.
 [http.proxy_oidc]
 user_header = "X-Auth-Request-User"                        # Required header (default shown)
 email_header = "X-Auth-Request-Email"                      # Email header (default shown)
 groups_header = "X-Auth-Request-Groups"                    # Comma-separated groups (default shown)
 preferred_username_header = "X-Auth-Request-Preferred-Username"  # Display name (default shown)
 access_token_header = "X-Auth-Request-Access-Token"        # Access token (default shown)
+
+# Trust anchors (configure at least one for production):
+trusted_proxies = ["10.0.0.0/8", "::1/128"]                # CIDR allow-list of proxy peer IPs
+# shared_secret = "{{ PROXY_SHARED_SECRET }}"              # Secret the proxy must echo
+# shared_secret_header = "X-Proxy-Secret"                  # Header carrying it (default shown)
 
 # =============================================================================
 # Basic Auth Configuration (requires 'basic-auth' feature)

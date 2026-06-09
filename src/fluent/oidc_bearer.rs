@@ -49,6 +49,9 @@ pub(crate) struct JwksProvider {
     /// Validation parameters, fixed for the provider's lifetime.
     issuer: String,
     audiences: Vec<String>,
+    /// Whether the service runs in production; when `true` and no audiences are
+    /// configured, the provider fails closed (accepts no Bearer tokens).
+    is_production: bool,
 }
 
 impl JwksProvider {
@@ -57,12 +60,13 @@ impl JwksProvider {
         jwks_url: String,
         issuer: String,
         audiences: Vec<String>,
+        is_production: bool,
     ) -> Result<Arc<Self>> {
         let http_client = openidconnect::reqwest::Client::new();
         // Retry the initial fetch with bounded exponential backoff so a single
         // transient network hiccup at startup doesn't fail the whole service.
         let jwks = Self::fetch_jwks_with_retry(&http_client, &jwks_url).await?;
-        let keys = Self::build_keys(&jwks, &issuer, &audiences);
+        let keys = Self::build_keys(&jwks, &issuer, &audiences, is_production);
 
         let provider = Arc::new(Self {
             keys: RwLock::new(keys),
@@ -70,6 +74,7 @@ impl JwksProvider {
             http_client,
             issuer,
             audiences,
+            is_production,
         });
 
         // Spawn background refresh task
@@ -94,19 +99,33 @@ impl JwksProvider {
     /// Re-fetch JWKS from the provider and rebuild the cached keys.
     pub async fn refresh(&self) -> Result<()> {
         let jwks = Self::fetch_jwks(&self.http_client, &self.jwks_url).await?;
-        let keys = Self::build_keys(&jwks, &self.issuer, &self.audiences);
+        let keys = Self::build_keys(&jwks, &self.issuer, &self.audiences, self.is_production);
         *self.keys.write().await = keys;
         tracing::debug!("JWKS refreshed successfully");
         Ok(())
     }
 
     /// Build the per-`kid` decode key + validation cache from a fetched JWK set.
+    ///
+    /// When no audiences are configured, `aud` validation would otherwise be
+    /// disabled (any token from the issuer accepted). In production that is
+    /// unsafe, so the provider **fails closed**: it builds no keys, and every
+    /// Bearer token is rejected until audiences are configured.
     fn build_keys(
         jwks: &JwkSet,
         issuer: &str,
         audiences: &[String],
+        is_production: bool,
     ) -> HashMap<String, Arc<CachedKey>> {
         if audiences.is_empty() {
+            if is_production {
+                tracing::error!(
+                    "OIDC audience validation cannot be disabled in production: no [http.oidc] \
+                     audiences are configured. Refusing all Bearer tokens (fail-closed) — set \
+                     audiences to enable Bearer authentication."
+                );
+                return HashMap::new();
+            }
             tracing::warn!(
                 "OIDC audience validation is disabled: no audiences configured. Any token \
                  issued by the trusted issuer will be accepted regardless of its `aud` claim. \
@@ -246,6 +265,72 @@ impl JwksProvider {
 
         Ok(token_data.claims)
     }
+
+    /// Re-verify only the **signature and issuer** of a JWT against the cached
+    /// JWKS, ignoring `exp`, `aud`, and `nonce`.
+    ///
+    /// Used to re-validate a stored OIDC ID token on the session path as defense
+    /// in depth: the claims were already fully validated at callback time, so the
+    /// purpose here is solely to detect a forged/tampered stored token. `exp` is
+    /// intentionally **not** checked — ID tokens are short-lived and a live
+    /// session legitimately outlives them via token refresh, so an exp check
+    /// would spuriously drop valid sessions.
+    ///
+    /// Returns [`SignatureCheck::Unverifiable`] (rather than `Invalid`) when the
+    /// signing key cannot be located even after a refresh, so the caller can fall
+    /// back to other integrity guarantees instead of logging the user out on a
+    /// transient JWKS problem or an unobserved key rotation.
+    pub async fn verify_signature(self: &Arc<Self>, token: &str) -> SignatureCheck {
+        let Ok(header) = decode_header(token) else {
+            return SignatureCheck::Invalid;
+        };
+        let Some(kid) = header.kid else {
+            return SignatureCheck::Invalid;
+        };
+
+        // Locate the key, refreshing once for rotation if it's missing.
+        let mut cached = {
+            let keys = self.keys.read().await;
+            keys.get(&kid).cloned()
+        };
+        if cached.is_none() {
+            if self.refresh().await.is_err() {
+                return SignatureCheck::Unverifiable;
+            }
+            cached = {
+                let keys = self.keys.read().await;
+                keys.get(&kid).cloned()
+            };
+        }
+        let Some(cached) = cached else {
+            return SignatureCheck::Unverifiable;
+        };
+
+        // Reuse the cached key/algorithm/issuer, but relax exp and aud.
+        let mut validation = cached.validation.clone();
+        validation.validate_exp = false;
+        validation.validate_aud = false;
+        match decode::<serde_json::Value>(token, &cached.decoding_key, &validation) {
+            Ok(_) => SignatureCheck::Valid,
+            Err(e) => {
+                tracing::debug!(error = %e, kid, "stored ID token failed signature re-verification");
+                SignatureCheck::Invalid
+            }
+        }
+    }
+}
+
+/// Outcome of re-verifying a stored token's signature (see
+/// [`JwksProvider::verify_signature`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SignatureCheck {
+    /// The signature is valid: the token was issued by the trusted issuer.
+    Valid,
+    /// The signature is definitively invalid (forged or signed by an unknown key).
+    Invalid,
+    /// The signature could not be checked (JWKS unavailable, or the key was not
+    /// found even after a refresh). Integrity must be ensured by other means.
+    Unverifiable,
 }
 
 /// Maps a JWK's declared signing algorithm to a `jsonwebtoken::Algorithm`.
@@ -274,6 +359,21 @@ fn jwk_signing_algorithm(jwk: &Jwk) -> Option<Algorithm> {
 pub(crate) enum TokenError {
     KeyNotFound,
     Invalid,
+}
+
+/// Whether verbose token-claim logging is explicitly opted in via the
+/// `AXUM_CONF_LOG_TOKEN_CLAIMS` environment variable (`1`/`true`), read once.
+///
+/// Token claims contain PII (subject, email, username, roles), so they are
+/// **not** logged merely because `DEBUG` is enabled — that would leak PII into
+/// logs whenever someone raises the log level to troubleshoot. This gate keeps
+/// claim logging an explicit, deliberate opt-in.
+pub(crate) fn log_token_claims_enabled() -> bool {
+    static ENABLED: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+        std::env::var("AXUM_CONF_LOG_TOKEN_CLAIMS")
+            .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+    });
+    *ENABLED
 }
 
 /// Extract `AuthenticatedIdentity` from decoded JWT claims.
@@ -319,14 +419,16 @@ pub(crate) fn claims_to_identity(
         })
         .unwrap_or_default();
 
-    tracing::debug!(
-        subject = %sub,
-        email = ?email,
-        preferred_username = ?preferred_username,
-        group_count = groups.len(),
-        role_count = roles.len(),
-        "bearer token claims mapped to identity"
-    );
+    if log_token_claims_enabled() {
+        tracing::debug!(
+            subject = %sub,
+            email = ?email,
+            preferred_username = ?preferred_username,
+            group_count = groups.len(),
+            role_count = roles.len(),
+            "bearer token claims mapped to identity"
+        );
+    }
 
     Some(AuthenticatedIdentity {
         method: AuthMethod::Oidc,

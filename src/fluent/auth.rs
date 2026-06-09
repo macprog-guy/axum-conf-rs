@@ -54,9 +54,13 @@ where
             let issuer = format!("{issuer_base}/realms/{}", oidc.realm);
             let jwks_url = format!("{issuer}/protocol/openid-connect/certs");
 
-            let jwks =
-                super::oidc_bearer::JwksProvider::new(jwks_url, issuer, oidc.audiences.clone())
-                    .await?;
+            let jwks = super::oidc_bearer::JwksProvider::new(
+                jwks_url,
+                issuer,
+                oidc.audiences.clone(),
+                self.config.is_production,
+            )
+            .await?;
 
             let bearer_config = Arc::new(super::oidc_bearer::BearerAuthConfig {
                 passthrough: oidc.auth_code_flow_enabled(),
@@ -227,6 +231,43 @@ where
         if let Some(proxy_oidc_config) = &self.config.http.proxy_oidc
             && self.is_middleware_enabled(HttpMiddleware::ProxyOidc)
         {
+            let is_production = self.config.is_production;
+
+            // `trusted_proxies` matches the direct TCP peer, which is the load
+            // balancer (not the proxy) behind a k8s Service / cloud LB. Warn when
+            // it's the only anchor so an operator isn't silently deny-all or
+            // relying on a spoofable LB-CIDR allow-list; steer them to shared_secret.
+            if !proxy_oidc_config.trusted_proxies.is_empty()
+                && proxy_oidc_config.effective_shared_secret().is_none()
+            {
+                tracing::warn!(
+                    "Proxy OIDC trusts headers by peer IP (trusted_proxies), which matches the \
+                     direct TCP peer. If a load balancer or ingress sits in front of this app, \
+                     the peer is the load balancer, not the proxy — prefer [http.proxy_oidc] \
+                     shared_secret for load-balanced deployments."
+                );
+            }
+
+            // Warn loudly at startup about the trust posture rather than per
+            // request: identity/role headers are spoofable unless a trust anchor
+            // ties them to the real proxy.
+            if !proxy_oidc_config.has_trust_anchor() {
+                if is_production {
+                    tracing::warn!(
+                        "Proxy OIDC is enabled in production with no trusted_proxies or \
+                         shared_secret configured: X-Auth-Request-* identity headers will be \
+                         IGNORED (fail-closed). Configure [http.proxy_oidc] trusted_proxies or \
+                         shared_secret to authenticate via the proxy."
+                    );
+                } else {
+                    tracing::warn!(
+                        "Proxy OIDC is enabled with no trusted_proxies or shared_secret \
+                         configured: X-Auth-Request-* headers are trusted from ANY client. This \
+                         is NOT safe for production — configure a trust anchor."
+                    );
+                }
+            }
+
             tracing::trace!("ProxyOidc middleware enabled");
             let config = std::sync::Arc::new(proxy_oidc_config.clone());
 
@@ -234,7 +275,7 @@ where
                 .inner
                 .route_layer(axum::middleware::from_fn(move |request, next| {
                     let config = std::sync::Arc::clone(&config);
-                    super::proxy_oidc::proxy_oidc_middleware(config, request, next)
+                    super::proxy_oidc::proxy_oidc_middleware(config, is_production, request, next)
                 }));
         }
         self

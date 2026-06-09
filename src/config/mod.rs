@@ -266,8 +266,29 @@ where
     ///
     /// Parses a configuration string in TOML format into a Config struct.
     ///
+    /// Note: this does **not** consult `RUST_ENV`, so [`is_production`] defaults
+    /// to `true` (the fail-safe posture — restrictive CORS, OIDC audience and
+    /// proxy-header fail-closed). Use [`from_toml_file`] / [`from_rust_env`] to
+    /// resolve it from the environment, or [`with_production`] to set it
+    /// explicitly when building config programmatically (e.g. in tests/dev).
+    ///
+    /// [`is_production`]: Config::is_production
+    /// [`from_toml_file`]: Config::from_toml_file
+    /// [`from_rust_env`]: Config::from_rust_env
+    /// [`with_production`]: Config::with_production
     pub fn from_toml(toml_str: &str) -> Result<Config<T>> {
         replace_handlebars_with_env(toml_str).parse()
+    }
+
+    /// Overrides whether the service is treated as running in production.
+    ///
+    /// Drives fail-safe behavior (restrictive CORS defaults, OIDC audience and
+    /// proxy-header fail-closed). Normally resolved from `RUST_ENV` at load; set it
+    /// explicitly when constructing config without a config file.
+    #[must_use]
+    pub fn with_production(mut self, is_production: bool) -> Self {
+        self.is_production = is_production;
+        self
     }
 
     /// Sets the HTTP server bind address of the HttpConfig.

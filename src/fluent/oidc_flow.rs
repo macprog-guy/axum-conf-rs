@@ -82,6 +82,9 @@ pub(crate) struct OidcClient {
     post_login_redirect: String,
     post_logout_redirect: String,
     end_session_url: Option<String>,
+    /// JWKS for re-verifying the signature of a stored ID token on the session
+    /// path (defense in depth against a tampered/forged session record).
+    id_token_keys: Arc<super::oidc_bearer::JwksProvider>,
 }
 
 impl OidcClient {
@@ -92,7 +95,7 @@ impl OidcClient {
             config.issuer_url.trim_end_matches('/'),
             config.realm
         );
-        let issuer = IssuerUrl::new(issuer_url)
+        let issuer = IssuerUrl::new(issuer_url.clone())
             .map_err(|e| Error::config(format!("Invalid OIDC issuer URL: {e}")))?;
 
         let http_client = openidconnect::reqwest::Client::new();
@@ -104,6 +107,17 @@ impl OidcClient {
         // Try to extract end_session_endpoint from raw discovery JSON.
         // Keycloak advertises this, but it's not in CoreProviderMetadata's typed fields.
         let end_session_url = extract_end_session_endpoint(&provider_metadata);
+
+        // A JWKS view used only to re-verify the signature of stored ID tokens on
+        // the session path. The ID token's audience is the client id; production
+        // fail-closed-on-empty-audiences doesn't apply (audiences is non-empty).
+        let id_token_keys = super::oidc_bearer::JwksProvider::new(
+            provider_metadata.jwks_uri().to_string(),
+            issuer_url,
+            vec![config.client_id.clone()],
+            false,
+        )
+        .await?;
 
         let redirect_uri = config
             .redirect_uri
@@ -128,14 +142,21 @@ impl OidcClient {
             post_login_redirect: config.post_login_redirect.clone(),
             post_logout_redirect: config.post_logout_redirect.clone(),
             end_session_url,
+            id_token_keys,
         })
     }
 
-    /// Refreshes tokens using a refresh token.
-    pub async fn refresh_tokens(
+    /// Re-verify the signature of a stored ID token (see
+    /// [`super::oidc_bearer::JwksProvider::verify_signature`]).
+    async fn verify_id_token_signature(
         &self,
-        refresh_token: &str,
-    ) -> Result<(String, Option<String>, u64)> {
+        id_token_jwt: &str,
+    ) -> super::oidc_bearer::SignatureCheck {
+        self.id_token_keys.verify_signature(id_token_jwt).await
+    }
+
+    /// Refreshes tokens using a refresh token.
+    pub async fn refresh_tokens(&self, refresh_token: &str) -> Result<RefreshedTokens> {
         let response = self
             .client
             .exchange_refresh_token(&openidconnect::RefreshToken::new(refresh_token.to_string()))
@@ -144,15 +165,39 @@ impl OidcClient {
             .await
             .map_err(|e| Error::authentication(format!("Token refresh failed: {e}")))?;
 
-        let new_access = response.access_token().secret().clone();
-        let new_refresh = response.refresh_token().map(|t| t.secret().clone());
-        let new_expiry = response
-            .expires_in()
-            .map(|d| now_epoch_secs() + d.as_secs())
-            .unwrap_or(0);
+        let access = response.access_token().secret().clone();
+        let refresh = response.refresh_token().map(|t| t.secret().clone());
+        // Capture a freshly-issued ID token (when the provider returns one) so the
+        // session's stored ID token stays valid and its signature/exp can be
+        // re-verified on subsequent requests.
+        let id_token = response.id_token().map(ToString::to_string);
+        let expiry = response.expires_in().map_or_else(
+            // Some providers omit `expires_in` on refresh. Fall back to a short,
+            // sane lifetime rather than `0`, which would read as "already
+            // expired" and force a refresh on every single request.
+            || now_epoch_secs() + DEFAULT_TOKEN_LIFETIME_SECS,
+            |d| now_epoch_secs() + d.as_secs(),
+        );
 
-        Ok((new_access, new_refresh, new_expiry))
+        Ok(RefreshedTokens {
+            access,
+            refresh,
+            id_token,
+            expiry,
+        })
     }
+}
+
+/// Fallback access-token lifetime (seconds) used when a refresh response omits
+/// `expires_in`.
+const DEFAULT_TOKEN_LIFETIME_SECS: u64 = 300;
+
+/// Tokens returned by [`OidcClient::refresh_tokens`].
+pub(crate) struct RefreshedTokens {
+    pub access: String,
+    pub refresh: Option<String>,
+    pub id_token: Option<String>,
+    pub expiry: u64,
 }
 
 /// Extract end_session_endpoint from OIDC discovery metadata.
@@ -262,8 +307,10 @@ pub(crate) async fn callback_handler(
         .claims(&verifier, &Nonce::new(nonce_secret))
         .map_err(|e| Error::authentication(format!("ID token validation failed: {e}")))?;
 
-    // Log the full ID token claims for debugging
-    if tracing::enabled!(tracing::Level::DEBUG) {
+    // Log the full ID token claims for debugging. Claims are PII, so this is
+    // gated behind an explicit opt-in (AXUM_CONF_LOG_TOKEN_CLAIMS), not merely
+    // the DEBUG level.
+    if super::oidc_bearer::log_token_claims_enabled() && tracing::enabled!(tracing::Level::DEBUG) {
         let jwt_str = id_token.to_string();
         let jwt_parts: Vec<&str> = jwt_str.split('.').collect();
         if jwt_parts.len() == 3 {
@@ -299,10 +346,15 @@ pub(crate) async fn callback_handler(
     // Serialize the ID token as a raw JWT string for later claim parsing
     let _ = session.insert(SESSION_ID_TOKEN, id_token.to_string()).await;
 
-    if let Some(expires_in) = token_response.expires_in() {
-        let expiry = now_epoch_secs() + expires_in.as_secs();
-        let _ = session.insert(SESSION_TOKEN_EXPIRY, expiry).await;
-    }
+    // Always record an expiry so the access token is eventually refreshed. When
+    // the provider omits `expires_in`, fall back to a short lifetime (matching the
+    // refresh path) rather than leaving it unset, which would treat the token as
+    // never-expiring.
+    let expiry = token_response.expires_in().map_or_else(
+        || now_epoch_secs() + DEFAULT_TOKEN_LIFETIME_SECS,
+        |d| now_epoch_secs() + d.as_secs(),
+    );
+    let _ = session.insert(SESSION_TOKEN_EXPIRY, expiry).await;
 
     // Clean up flow state from session
     let _ = session.remove::<String>(SESSION_PKCE_VERIFIER).await;
@@ -314,7 +366,9 @@ pub(crate) async fn callback_handler(
     let _ = session.remove::<String>(SESSION_RETURN_URL).await;
 
     let redirect_target = return_url
-        .filter(|url| url.starts_with('/')) // security: only relative URLs
+        // Only same-origin relative paths; reject protocol-relative (`//host`)
+        // and backslash-tricked (`/\host`) open-redirect vectors.
+        .filter(|url| crate::utils::is_safe_local_path(url))
         .unwrap_or_else(|| oidc.post_login_redirect.clone());
 
     Ok(Redirect::temporary(&redirect_target))
@@ -392,12 +446,19 @@ pub(crate) async fn session_to_identity(
         match (oidc_client, refresh_token) {
             (Some(client), Some(refresh)) => {
                 match client.refresh_tokens(&refresh).await {
-                    Ok((new_access, new_refresh, new_expiry)) => {
-                        let _ = session.insert(SESSION_ACCESS_TOKEN, &new_access).await;
-                        if let Some(rt) = &new_refresh {
+                    Ok(refreshed) => {
+                        let _ = session
+                            .insert(SESSION_ACCESS_TOKEN, &refreshed.access)
+                            .await;
+                        if let Some(rt) = &refreshed.refresh {
                             let _ = session.insert(SESSION_REFRESH_TOKEN, rt).await;
                         }
-                        let _ = session.insert(SESSION_TOKEN_EXPIRY, new_expiry).await;
+                        // Re-store the freshly-issued ID token (when present) so it
+                        // stays valid for signature re-verification below.
+                        if let Some(idt) = &refreshed.id_token {
+                            let _ = session.insert(SESSION_ID_TOKEN, idt).await;
+                        }
+                        let _ = session.insert(SESSION_TOKEN_EXPIRY, refreshed.expiry).await;
                         // Continue — identity will be built below from the ID token
                     }
                     Err(_) => {
@@ -417,6 +478,25 @@ pub(crate) async fn session_to_identity(
 
     // Build identity from stored ID token claims
     if let Ok(Some(id_token_str)) = session.get::<String>(SESSION_ID_TOKEN).await {
+        // Defense in depth: re-verify the stored ID token's signature. The claims
+        // were already validated at callback time, but an external session store
+        // (Postgres/Redis) could be tampered with — a definitively invalid
+        // signature means a forged record, so drop identity and clear the session.
+        // `Unverifiable` (transient JWKS issue / missed key rotation) is tolerated
+        // because the stored record's integrity is also protected by its HMAC tag.
+        if let Some(client) = request.extensions().get::<Arc<OidcClient>>().cloned()
+            && matches!(
+                client.verify_id_token_signature(&id_token_str).await,
+                super::oidc_bearer::SignatureCheck::Invalid
+            )
+        {
+            tracing::warn!(
+                "stored session ID token failed signature re-verification; clearing session"
+            );
+            let _ = session.flush().await;
+            return next.run(request).await;
+        }
+
         let current_access: Option<String> = session.get(SESSION_ACCESS_TOKEN).await.ok().flatten();
         if let Some(identity) =
             parse_id_token_to_identity(&id_token_str, current_access.as_deref(), &roles_claim)
@@ -450,14 +530,16 @@ fn parse_id_token_to_identity(
     let payload = engine.decode(parts[1]).ok()?;
     let claims: serde_json::Value = serde_json::from_slice(&payload).ok()?;
 
-    tracing::debug!(
-        claim_keys = ?claims.as_object().map(|o| o.keys().collect::<Vec<_>>()),
-        has_sub = claims.get("sub").is_some(),
-        has_email = claims.get("email").is_some(),
-        has_preferred_username = claims.get("preferred_username").is_some(),
-        has_realm_access = claims.get("realm_access").is_some(),
-        "id token claims shape from session"
-    );
+    if super::oidc_bearer::log_token_claims_enabled() {
+        tracing::debug!(
+            claim_keys = ?claims.as_object().map(|o| o.keys().collect::<Vec<_>>()),
+            has_sub = claims.get("sub").is_some(),
+            has_email = claims.get("email").is_some(),
+            has_preferred_username = claims.get("preferred_username").is_some(),
+            has_realm_access = claims.get("realm_access").is_some(),
+            "id token claims shape from session"
+        );
+    }
 
     let sub = claims.get("sub")?.as_str()?.to_string();
 

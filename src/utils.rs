@@ -100,6 +100,31 @@ impl<T: Default + Zeroize> std::fmt::Debug for Sensitive<T> {
     }
 }
 
+/// Constant-time byte-slice equality, to avoid leaking secret contents through
+/// comparison timing. The length check short-circuits (length is far less
+/// sensitive than contents); the remaining comparison is non-short-circuiting.
+#[must_use]
+pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.iter()
+        .zip(b.iter())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0
+}
+
+/// Returns whether `path` is a safe same-origin redirect target.
+///
+/// A safe target is a relative path beginning with a single `/`. This rejects
+/// protocol-relative (`//evil.com`) and backslash-tricked (`/\evil.com`) forms,
+/// which browsers resolve as cross-origin — the classic open-redirect vectors.
+#[cfg(feature = "keycloak")]
+#[must_use]
+pub(crate) fn is_safe_local_path(path: &str) -> bool {
+    path.starts_with('/') && !path.starts_with("//") && !path.starts_with("/\\")
+}
+
 /// Request ID generator for distributed tracing and request correlation.
 ///
 /// This generator implements the `MakeRequestId` trait from `tower-http` to either:
@@ -349,6 +374,29 @@ impl From<u32> for ApiVersion {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    #[test]
+    fn constant_time_eq_matches_eq() {
+        assert!(constant_time_eq(b"secret", b"secret"));
+        assert!(!constant_time_eq(b"secret", b"Secret"));
+        assert!(!constant_time_eq(b"secret", b"secre"));
+        assert!(constant_time_eq(b"", b""));
+    }
+
+    #[cfg(feature = "keycloak")]
+    #[test]
+    fn is_safe_local_path_rejects_open_redirects() {
+        // Same-origin relative paths are safe.
+        assert!(is_safe_local_path("/"));
+        assert!(is_safe_local_path("/dashboard?x=1"));
+        // Protocol-relative and backslash-tricked targets are cross-origin.
+        assert!(!is_safe_local_path("//evil.com"));
+        assert!(!is_safe_local_path("/\\evil.com"));
+        // Absolute and scheme-qualified URLs are not local paths.
+        assert!(!is_safe_local_path("https://evil.com"));
+        assert!(!is_safe_local_path("dashboard"));
+        assert!(!is_safe_local_path(""));
+    }
 
     #[test]
     fn test_is_valid_request_id() {

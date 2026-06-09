@@ -3,27 +3,90 @@
 //! Extracts authenticated identity from HTTP headers set by an authenticating
 //! reverse proxy (e.g., oauth2-proxy with Nginx `auth_request`).
 
-use axum::{extract::Request, middleware::Next, response::Response};
+use axum::{extract::ConnectInfo, extract::Request, middleware::Next, response::Response};
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
-use crate::utils::Sensitive;
+use crate::utils::{Sensitive, constant_time_eq};
 use crate::{AuthMethod, AuthenticatedIdentity, HttpProxyOidcConfig};
 
 /// Proxy OIDC authentication middleware function.
+///
+/// Identity headers are only honored when the request demonstrably comes from a
+/// trusted proxy (see [`is_trusted_source`]); otherwise the headers are ignored
+/// so a direct client cannot spoof identity/roles. `is_production` drives the
+/// fail-closed default when no trust anchor is configured.
 pub(crate) async fn proxy_oidc_middleware(
     config: Arc<HttpProxyOidcConfig>,
+    is_production: bool,
     mut request: Request,
     next: Next,
 ) -> Response {
-    if let Some(identity) = extract_identity(&config, request.headers()) {
-        tracing::debug!(
-            user = %identity.user,
-            "Request authenticated via proxy OIDC"
+    let peer_ip = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ci| ci.0.ip());
+
+    if is_trusted_source(&config, is_production, peer_ip, request.headers()) {
+        if let Some(identity) = extract_identity(&config, request.headers()) {
+            // Don't log the username here — it is PII and would leak into logs at
+            // DEBUG. Identity is recorded to the request span by `setup_user_span`.
+            tracing::debug!("Request authenticated via proxy OIDC");
+            request.extensions_mut().insert(Arc::new(identity));
+        }
+    } else if request.headers().get(&config.user_header).is_some() {
+        // Identity headers are present but the request did not come from a
+        // trusted proxy — ignore them rather than trusting a spoofable source.
+        tracing::warn!(
+            ?peer_ip,
+            "Ignoring proxy identity headers from an untrusted source; configure \
+             [http.proxy_oidc] trusted_proxies or shared_secret to trust them"
         );
-        request.extensions_mut().insert(Arc::new(identity));
     }
 
     next.run(request).await
+}
+
+/// Decides whether the request's proxy identity headers may be trusted.
+///
+/// Trust is granted if a configured trust anchor matches (peer IP within
+/// `trusted_proxies`, or a matching `shared_secret`). If a trust anchor is
+/// configured but none matches, trust is denied. If none is configured, trust
+/// falls back to the environment: denied in production (fail-closed), allowed
+/// otherwise (dev convenience).
+fn is_trusted_source(
+    config: &HttpProxyOidcConfig,
+    is_production: bool,
+    peer_ip: Option<IpAddr>,
+    headers: &axum::http::HeaderMap,
+) -> bool {
+    // An empty/absent configured secret is NOT a trust anchor (e.g. an unset
+    // `{{ ENV_VAR }}`); never trust an empty secret matching an empty header.
+    if let Some(secret) = config.effective_shared_secret() {
+        let provided = headers
+            .get(&config.shared_secret_header)
+            .and_then(|v| v.to_str().ok());
+        if let Some(provided) = provided
+            && constant_time_eq(provided.as_bytes(), secret.as_bytes())
+        {
+            return true;
+        }
+    }
+
+    if !config.trusted_proxies.is_empty()
+        && let Some(ip) = peer_ip
+        && config.trusted_proxies.iter().any(|net| net.contains(&ip))
+    {
+        return true;
+    }
+
+    if config.has_trust_anchor() {
+        // A trust anchor is configured but the request matched none of them.
+        return false;
+    }
+
+    // Nothing configured: fail-closed in production, permissive elsewhere.
+    !is_production
 }
 
 /// Extracts identity from proxy headers if the user header is present.
@@ -195,5 +258,108 @@ mod tests {
 
         let identity = extract_identity(&config, &headers).unwrap();
         assert_eq!(identity.email, None);
+    }
+
+    // --- trust-anchor gating -------------------------------------------------
+
+    fn ip(s: &str) -> std::net::IpAddr {
+        s.parse().unwrap()
+    }
+
+    #[test]
+    fn untrusted_unconfigured_production_is_fail_closed() {
+        let config = default_config();
+        assert!(!is_trusted_source(
+            &config,
+            true,
+            Some(ip("203.0.113.7")),
+            &HeaderMap::new()
+        ));
+    }
+
+    #[test]
+    fn untrusted_unconfigured_dev_is_permissive() {
+        let config = default_config();
+        assert!(is_trusted_source(
+            &config,
+            false,
+            Some(ip("203.0.113.7")),
+            &HeaderMap::new()
+        ));
+    }
+
+    #[test]
+    fn trusted_proxies_match_grants_trust_even_in_production() {
+        let config = HttpProxyOidcConfig {
+            trusted_proxies: vec!["10.0.0.0/8".parse().unwrap()],
+            ..Default::default()
+        };
+        assert!(is_trusted_source(
+            &config,
+            true,
+            Some(ip("10.1.2.3")),
+            &HeaderMap::new()
+        ));
+    }
+
+    #[test]
+    fn trusted_proxies_non_match_is_denied() {
+        let config = HttpProxyOidcConfig {
+            trusted_proxies: vec!["10.0.0.0/8".parse().unwrap()],
+            ..Default::default()
+        };
+        // Out-of-range peer, and a missing peer IP, are both untrusted.
+        assert!(!is_trusted_source(
+            &config,
+            false,
+            Some(ip("192.168.1.1")),
+            &HeaderMap::new()
+        ));
+        assert!(!is_trusted_source(&config, false, None, &HeaderMap::new()));
+    }
+
+    #[test]
+    fn shared_secret_match_grants_trust() {
+        let config = HttpProxyOidcConfig {
+            shared_secret: Some(Sensitive::from("s3cr3t")),
+            ..Default::default()
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Proxy-Secret", "s3cr3t".parse().unwrap());
+        assert!(is_trusted_source(&config, true, None, &headers));
+    }
+
+    #[test]
+    fn empty_shared_secret_is_not_a_trust_anchor() {
+        // `shared_secret = "{{ VAR }}"` with VAR unset deserializes to Some("").
+        let config = HttpProxyOidcConfig {
+            shared_secret: Some(Sensitive::from("")),
+            ..Default::default()
+        };
+        assert!(
+            !config.has_trust_anchor(),
+            "an empty secret must not count as a configured trust anchor"
+        );
+        // An attacker echoing an empty secret header must NOT be trusted; with
+        // nothing else configured this falls back to the prod fail-closed default.
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Proxy-Secret", "".parse().unwrap());
+        assert!(!is_trusted_source(&config, true, None, &headers));
+        // And outside production the unconfigured fallback is permissive.
+        assert!(is_trusted_source(&config, false, None, &headers));
+    }
+
+    #[test]
+    fn shared_secret_mismatch_or_missing_is_denied() {
+        let config = HttpProxyOidcConfig {
+            shared_secret: Some(Sensitive::from("s3cr3t")),
+            ..Default::default()
+        };
+        let mut wrong = HeaderMap::new();
+        wrong.insert("X-Proxy-Secret", "nope".parse().unwrap());
+        assert!(!is_trusted_source(&config, false, None, &wrong));
+        // Missing secret header, even in dev, is denied because a trust anchor
+        // is configured.
+        assert!(!is_trusted_source(&config, false, None, &HeaderMap::new()));
     }
 }

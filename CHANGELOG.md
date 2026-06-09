@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Proxy OIDC headers are now fail-closed in production.** When `[http.proxy_oidc]` is
+  enabled, the `X-Auth-Request-*` identity/role headers are only honored when the request
+  comes from a trusted proxy — configure `trusted_proxies` (CIDR allow-list) and/or
+  `shared_secret`/`shared_secret_header`. With neither configured, the headers are now
+  **ignored in production** (`RUST_ENV` unset/`prod`/`production`/`release`) instead of
+  trusted from any client; they remain honored (with a warning) outside production for dev
+  convenience. **Action required:** production deployments relying on proxy headers must set
+  a trust anchor. (Closes a header-spoofing identity/authorization bypass.)
+- **External session stores are now integrity-protected.** Records persisted to Postgres or
+  Redis are HMAC-SHA256 tagged with a new required `[http] session_signing_key` (≥32 bytes,
+  stable across replicas) and rejected on load if the tag does not verify — preventing an
+  attacker with store write access from forging session/identity claims. Selecting a
+  `postgres`/`redis` session store without a `session_signing_key` now fails validation.
+- **OIDC session identity is re-verified.** On the session path the stored ID token's
+  signature is re-checked against the issuer JWKS (defense in depth), and a freshly-issued
+  ID token is re-stored on token refresh so it stays valid.
+- **OIDC Bearer audience validation fails closed in production.** If `[http.oidc]` has no
+  `audiences`, Bearer tokens are now rejected in production (previously `aud` validation was
+  silently disabled). Outside production it still warns and accepts. This applies to
+  Bearer/API auth only — the browser auth-code login flow is unaffected (the ID token's
+  audience is the client id, validated independently).
+- Hardened the OIDC post-login open-redirect filter to reject protocol-relative (`//host`)
+  and backslash (`/\host`) targets.
+- `Cookie`, `Set-Cookie`, and the configured API-key header are now redacted from logs
+  alongside `Authorization`.
+- Full OIDC token claims (PII) are now logged only when `AXUM_CONF_LOG_TOKEN_CLAIMS` is set,
+  not merely at `DEBUG` level.
+- A malformed (deprecated) `X-Frame-Options: ALLOW-FROM` URL now falls back to `DENY` rather
+  than dropping all security headers.
+
+### Fixed
+- OIDC token refresh responses that omit `expires_in` no longer store an expiry of `0`
+  (which forced a token refresh on every request).
+
 ### Changed
 - Removed nine unused dependencies (`prometheus`, `axum-metrics`, `utoipa-axum`,
   `rustls-native-certs`, `http-body`, `http-body-util`, `humantime`, `rust_decimal`,

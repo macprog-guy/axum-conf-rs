@@ -17,7 +17,7 @@ use tower::limit::ConcurrencyLimitLayer;
 
 #[cfg(feature = "sensitive-headers")]
 use {
-    http::header::AUTHORIZATION, std::iter::once,
+    http::header::{AUTHORIZATION, COOKIE, SET_COOKIE},
     tower_http::sensitive_headers::SetSensitiveHeadersLayer,
 };
 
@@ -233,6 +233,8 @@ where
     /// # Protected Headers
     ///
     /// - `Authorization` - Bearer tokens, Basic auth, etc.
+    /// - `Cookie` / `Set-Cookie` - session cookies (the browser-session credential)
+    /// - the configured API-key header (when `basic-auth` is enabled)
     ///
     /// Additional headers can be protected by modifying this method.
     #[cfg(feature = "sensitive-headers")]
@@ -243,10 +245,19 @@ where
             return self;
         }
 
+        // Authorization and cookies are credentials; redact them from logs/traces.
+        let mut headers = vec![AUTHORIZATION, COOKIE, SET_COOKIE];
+
+        // Also redact the configured API-key header, which is a bearer credential.
+        #[cfg(feature = "basic-auth")]
+        if let Some(basic_auth) = &self.config.http.basic_auth
+            && let Ok(name) = HeaderName::from_bytes(basic_auth.api_key_header.as_bytes())
+        {
+            headers.push(name);
+        }
+
         tracing::trace!("SensitiveHeaders middleware enabled");
-        self.inner = self
-            .inner
-            .layer(SetSensitiveHeadersLayer::new(once(AUTHORIZATION)));
+        self.inner = self.inner.layer(SetSensitiveHeadersLayer::new(headers));
         self
     }
 

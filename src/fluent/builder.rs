@@ -191,26 +191,6 @@ where
         Ok(router)
     }
 
-    /// Adds the remaining standard middleware layers in the correct order.
-    /// These layers should be added last as they handle security, errors and panics.
-    /// Since they are added last, they are the outermost layers and thus executed first.
-    ///
-    /// # Deprecated
-    ///
-    /// This method is deprecated. Use `setup_middleware()` instead, which now includes
-    /// all middleware layers in the optimal order. This method is kept for backward
-    /// compatibility but does nothing.
-    #[must_use]
-    #[deprecated(
-        since = "0.2.2",
-        note = "Use setup_middleware() instead, which now includes all layers"
-    )]
-    pub fn build(self) -> Self {
-        // All middleware is now configured in setup_middleware()
-        // This method is a no-op for backward compatibility
-        self
-    }
-
     /// Starts the HTTP server based on the current configuration.
     ///
     /// The server supports both HTTP/1.1 and HTTP/2 protocols automatically.
@@ -679,26 +659,4 @@ pub(crate) async fn shutdown_signal_with_notifications(
     // Return immediately to let axum start graceful shutdown.
     // The timeout is enforced by the caller wrapping the serve call.
     notifier.emit(ShutdownPhase::GracePeriodStarted { timeout });
-}
-
-/// Returns a signal handler that allows us to stop the server using Ctrl+C
-/// or the terminate signal, which in turn allows us to perform a graceful
-/// shutdown with a configurable timeout.
-///
-/// If signal registration fails, the function logs a warning and falls back to
-/// waiting indefinitely. This ensures the server continues running even if signal
-/// handlers cannot be installed (e.g., in restricted environments).
-///
-/// # Deprecated
-///
-/// This function is deprecated. Use [`shutdown_signal_with_notifications`] instead,
-/// which emits [`ShutdownPhase`] events for coordinated shutdown handling.
-/// Note: The timeout is now enforced by the caller, not within this function.
-#[allow(dead_code)]
-#[deprecated(
-    since = "0.4.0",
-    note = "Use shutdown_signal_with_notifications instead for shutdown phase notifications"
-)]
-pub(crate) async fn shutdown_signal_with_timeout(timeout: Duration) {
-    shutdown_signal_with_notifications(timeout, ShutdownNotifier::default()).await;
 }

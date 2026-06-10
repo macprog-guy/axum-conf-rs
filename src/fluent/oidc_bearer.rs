@@ -56,7 +56,7 @@ pub(crate) struct JwksProvider {
 
 impl JwksProvider {
     /// Create a new provider, fetching the initial JWKS.
-    pub async fn new(
+    pub(crate) async fn new(
         jwks_url: String,
         issuer: String,
         audiences: Vec<String>,
@@ -113,7 +113,7 @@ impl JwksProvider {
     }
 
     /// Re-fetch JWKS from the provider and rebuild the cached keys.
-    pub async fn refresh(&self) -> Result<()> {
+    pub(crate) async fn refresh(&self) -> Result<()> {
         let jwks = Self::fetch_jwks(&self.http_client, &self.jwks_url).await?;
         let keys = Self::build_keys(&jwks, &self.issuer, &self.audiences, self.is_production);
         *self.keys.write().await = keys;
@@ -228,7 +228,7 @@ impl JwksProvider {
     }
 
     /// Validate a Bearer JWT token and return the decoded claims.
-    pub async fn validate_token(
+    pub(crate) async fn validate_token(
         self: &Arc<Self>,
         token: &str,
     ) -> std::result::Result<serde_json::Value, TokenError> {
@@ -291,7 +291,7 @@ impl JwksProvider {
     /// signing key cannot be located even after a refresh, so the caller can fall
     /// back to other integrity guarantees instead of logging the user out on a
     /// transient JWKS problem or an unobserved key rotation.
-    pub async fn verify_signature(self: &Arc<Self>, token: &str) -> SignatureCheck {
+    pub(crate) async fn verify_signature(self: &Arc<Self>, token: &str) -> SignatureCheck {
         let Ok(header) = decode_header(token) else {
             return SignatureCheck::Invalid;
         };

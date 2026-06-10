@@ -65,15 +65,28 @@ mod logging;
 #[cfg(feature = "postgres")]
 mod database;
 #[cfg(feature = "postgres")]
-pub use database::*;
+pub use database::DatabaseConfig;
 
-pub use http::*;
-pub use logging::*;
+#[cfg(feature = "keycloak")]
+pub use http::HttpOidcConfig;
+pub use http::{
+    AllRoles, AnyRole, ApplicationRole, ApplicationRoles, AuthMethod, AuthenticatedIdentity,
+    CorsHeader, CorsMethod, HttpConfig, HttpCorsConfig, HttpDeduplicationConfig, HttpMiddleware,
+    HttpMiddlewareConfig, HttpProxyOidcConfig, HttpXFrameConfig, SharedIdentity, StaticDirConfig,
+    StaticDirRoute, WithRole, XFrameOptions,
+};
+#[cfg(feature = "basic-auth")]
+pub use http::{BasicAuthApiKey, BasicAuthMode, BasicAuthUser, HttpBasicAuthConfig};
+#[cfg(feature = "circuit-breaker")]
+pub use http::{CircuitBreakerConfig, CircuitBreakerTargetConfig};
+#[cfg(feature = "session")]
+pub use http::{SameSiteConfig, SessionStoreConfig};
+pub use logging::{LogFormat, LoggingConfig};
 
 #[cfg(feature = "opentelemetry")]
 mod opentelemetry;
 #[cfg(feature = "opentelemetry")]
-pub use opentelemetry::*;
+pub use opentelemetry::OpenTelemetryConfig;
 
 #[cfg(feature = "postgres")]
 use sqlx_postgres::{

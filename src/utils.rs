@@ -3,8 +3,8 @@
 //!
 //! This module provides:
 //! - [`Sensitive`] - A wrapper type for sensitive data that hides values in debug output
-//! - [`RequestIdGenerator`] - Generates or preserves request IDs for distributed tracing
-//! - [`replace_handlebars_with_env`] - Template substitution for environment variables
+//! - `RequestIdGenerator` - Generates or preserves request IDs for distributed tracing (internal)
+//! - `replace_handlebars_with_env` - Template substitution for environment variables (internal)
 //! - [`ApiVersion`] - API version extraction and management for versioned APIs
 //!
 
@@ -163,13 +163,14 @@ pub(crate) fn is_safe_local_path(path: &str) -> bool {
 ///     └─ No header? ─> Generate new UUIDv7
 /// ```
 ///
-/// # Examples
+/// # Usage
 ///
-/// ```
-/// use axum_conf::RequestIdGenerator;
+/// This is an internal type wired automatically by `setup_middleware()` (and by
+/// `setup_request_id()`); it is not part of the public API. Conceptually it is
+/// installed as:
+///
+/// ```ignore
 /// use tower_http::request_id::SetRequestIdLayer;
-///
-/// // Add to your Axum router
 /// let layer = SetRequestIdLayer::x_request_id(RequestIdGenerator);
 /// ```
 ///
@@ -180,7 +181,7 @@ pub(crate) fn is_safe_local_path(path: &str) -> bool {
 /// - **Auditing**: Track the lifecycle of a request for compliance
 /// - **Monitoring**: Measure end-to-end request latency
 #[derive(Debug, Clone, Copy)]
-pub struct RequestIdGenerator;
+pub(crate) struct RequestIdGenerator;
 
 impl MakeRequestId for RequestIdGenerator {
     /// Generates or extracts a request ID from an HTTP request.

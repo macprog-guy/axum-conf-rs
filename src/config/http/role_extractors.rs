@@ -237,6 +237,10 @@ impl<S: Send + Sync, R: ApplicationRoles> FromRequestParts<S> for AllRoles<R> {
 #[macro_export]
 macro_rules! role {
     ($name:ident => $role:expr) => {
+        // `unreachable_pub` is a no-op at a crate root (where the marker type is
+        // genuinely reachable) but would fire when the macro is invoked inside a
+        // private/nested module; allow it so generated code is always lint-clean.
+        #[allow(unreachable_pub)]
         pub struct $name;
         impl $crate::ApplicationRole for $name {
             const ROLE: &'static str = $role;
@@ -269,6 +273,9 @@ macro_rules! role {
 #[macro_export]
 macro_rules! roles {
     ($name:ident => $($role:expr),+ $(,)?) => {
+        // See the note in `role!` — keeps generated code lint-clean under
+        // `unreachable_pub` regardless of where the macro is invoked.
+        #[allow(unreachable_pub)]
         pub struct $name;
         impl $crate::ApplicationRoles for $name {
             const ROLES: &'static [&'static str] = &[$($role),+];

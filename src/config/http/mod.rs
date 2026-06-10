@@ -6,24 +6,25 @@ mod cors;
 mod dedup;
 mod identity;
 mod middleware;
+#[cfg(feature = "keycloak")]
 mod oidc;
 mod proxy_oidc;
 mod role_extractors;
 mod staticdir;
 
 #[cfg(feature = "basic-auth")]
-pub use basic_auth::*;
+pub use basic_auth::{BasicAuthApiKey, BasicAuthMode, BasicAuthUser, HttpBasicAuthConfig};
 #[cfg(feature = "circuit-breaker")]
-pub use circuit_breaker::*;
-pub use cors::*;
-pub use dedup::*;
-pub use identity::*;
-pub use middleware::*;
+pub use circuit_breaker::{CircuitBreakerConfig, CircuitBreakerTargetConfig};
+pub use cors::{CorsHeader, CorsMethod, HttpCorsConfig};
+pub use dedup::HttpDeduplicationConfig;
+pub use identity::{AuthMethod, AuthenticatedIdentity, SharedIdentity};
+pub use middleware::{HttpMiddleware, HttpMiddlewareConfig};
 #[cfg(feature = "keycloak")]
-pub use oidc::*;
-pub use proxy_oidc::*;
-pub use role_extractors::*;
-pub use staticdir::*;
+pub use oidc::HttpOidcConfig;
+pub use proxy_oidc::HttpProxyOidcConfig;
+pub use role_extractors::{AllRoles, AnyRole, ApplicationRole, ApplicationRoles, WithRole};
+pub use staticdir::{StaticDirConfig, StaticDirRoute};
 
 use {crate::Result, serde::Deserialize, std::fmt, std::time::Duration};
 

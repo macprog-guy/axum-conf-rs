@@ -849,33 +849,4 @@ where
         );
         self
     }
-
-    /// Sets up both Kubernetes health check endpoints.
-    ///
-    /// This is a convenience method that calls both [`setup_liveness`](Self::setup_liveness)
-    /// and [`setup_readiness`](Self::setup_readiness). However, when using `setup_middleware()`,
-    /// these endpoints are placed at different positions in the middleware stack for optimal
-    /// behavior.
-    ///
-    /// # Deprecated
-    ///
-    /// Prefer using `setup_middleware()` which places liveness and readiness endpoints at
-    /// their optimal positions in the middleware stack. If you need manual control, use
-    /// `setup_liveness()` and `setup_readiness()` separately.
-    ///
-    /// # Configuration
-    ///
-    /// ```toml
-    /// [http]
-    /// liveness_route = "/live"   # Default
-    /// readiness_route = "/ready" # Default
-    /// ```
-    #[must_use]
-    #[deprecated(
-        since = "0.4.0",
-        note = "Use setup_middleware() or call setup_liveness() and setup_readiness() separately for optimal middleware ordering"
-    )]
-    pub fn setup_liveness_readiness(self) -> Self {
-        self.setup_liveness().setup_readiness()
-    }
 }

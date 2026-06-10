@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+> The breaking changes below are batched toward the next `0.6.0` release.
+- Replaced the crate's glob re-exports (`pub use config::*`, etc.) with an explicit, curated
+  public surface, and enabled `#![deny(unreachable_pub)]` so a forgotten re-export is a compile
+  error. As part of this, three types that were only ever exposed accidentally by the globs are
+  no longer public: `RequestIdGenerator`, `DeduplicationLayer`, and `DeduplicationService`
+  (all internal middleware plumbing). If you referenced them, switch to configuring the
+  middleware via TOML/`HttpConfig`.
+- Removed long-deprecated methods: `FluentRouter::build()` (a no-op since 0.2.2 — delete the call;
+  `setup_middleware()` already installs every layer) and `FluentRouter::setup_liveness_readiness()`
+  (call `setup_liveness()` and `setup_readiness()`, or just use `setup_middleware()`).
+
 ### Added
 - `SharedIdentity` extractor: a cheaply-cloned (`Arc`-backed, `Deref`) handle to the
   authenticated identity for read-only handlers, avoiding the per-request deep clone that

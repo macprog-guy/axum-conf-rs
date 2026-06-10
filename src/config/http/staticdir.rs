@@ -102,7 +102,7 @@ pub struct StaticDirConfig {
 
 /// Maximum allowed cache_max_age value (1 year in seconds).
 /// This is the practical upper limit for HTTP Cache-Control max-age.
-pub const MAX_CACHE_AGE_SECONDS: u64 = 31_536_000;
+pub(crate) const MAX_CACHE_AGE_SECONDS: u64 = 31_536_000;
 
 impl StaticDirConfig {
     /// Returns true if this directory is configured as the router fallback

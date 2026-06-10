@@ -143,11 +143,10 @@ impl RequestTracker {
 
 /// Layer that applies the deduplication middleware.
 ///
-/// Low-level Tower type wired internally by `setup_middleware`; hidden from the
-/// rendered public API. Configure deduplication via `[http.deduplication]` in TOML.
-#[doc(hidden)]
+/// Low-level Tower type wired internally by `setup_middleware`.
+/// Configure deduplication via `[http.deduplication]` in TOML.
 #[derive(Clone)]
-pub struct DeduplicationLayer {
+pub(crate) struct DeduplicationLayer {
     tracker: RequestTracker,
     header_name: String,
 }
@@ -160,7 +159,7 @@ impl DeduplicationLayer {
     /// * `ttl` - How long to track request IDs
     /// * `max_entries` - Maximum number of request IDs to track
     /// * `header_name` - The header containing the request ID (e.g., "x-request-id")
-    pub fn new(ttl: Duration, max_entries: usize, header_name: impl Into<String>) -> Self {
+    pub(crate) fn new(ttl: Duration, max_entries: usize, header_name: impl Into<String>) -> Self {
         Self {
             tracker: RequestTracker::new(ttl, max_entries),
             header_name: header_name.into(),
@@ -187,11 +186,9 @@ impl<S> Layer<S> for DeduplicationLayer {
 
 /// Service that handles request deduplication.
 ///
-/// Low-level Tower type produced by [`DeduplicationLayer`]; hidden from the
-/// rendered public API.
-#[doc(hidden)]
+/// Low-level Tower type produced by [`DeduplicationLayer`].
 #[derive(Clone)]
-pub struct DeduplicationService<S> {
+pub(crate) struct DeduplicationService<S> {
     inner: S,
     tracker: RequestTracker,
     header_name: String,

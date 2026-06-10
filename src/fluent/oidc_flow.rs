@@ -89,7 +89,7 @@ pub(crate) struct OidcClient {
 
 impl OidcClient {
     /// Performs OIDC Discovery and creates the client.
-    pub async fn discover(config: &HttpOidcConfig) -> Result<Self> {
+    pub(crate) async fn discover(config: &HttpOidcConfig) -> Result<Self> {
         let issuer_url = format!(
             "{}/realms/{}",
             config.issuer_url.trim_end_matches('/'),
@@ -156,7 +156,7 @@ impl OidcClient {
     }
 
     /// Refreshes tokens using a refresh token.
-    pub async fn refresh_tokens(&self, refresh_token: &str) -> Result<RefreshedTokens> {
+    pub(crate) async fn refresh_tokens(&self, refresh_token: &str) -> Result<RefreshedTokens> {
         let response = self
             .client
             .exchange_refresh_token(&openidconnect::RefreshToken::new(refresh_token.to_string()))

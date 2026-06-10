@@ -39,10 +39,6 @@ mod request;
 mod router;
 mod shutdown;
 
-// Re-export dedup types for backward compatibility
-#[cfg(feature = "deduplication")]
-pub use dedup::*;
-
 // Re-export FluentRouter - the main public type
 pub use router::FluentRouter;
 

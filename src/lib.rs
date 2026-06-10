@@ -261,6 +261,12 @@
 // (allow-unwrap-in-tests / allow-expect-in-tests); examples and integration tests
 // are separate crates and unaffected.
 #![deny(clippy::unwrap_used, clippy::expect_used)]
+// The public surface is re-exported explicitly below (no glob re-exports), so
+// every `pub` item is a deliberate API decision. `unreachable_pub` then turns a
+// `pub` item that was *not* wired into the public surface into a compile error,
+// so a forgotten re-export can't silently ship — mark genuinely-internal items
+// `pub(crate)` instead.
+#![deny(unreachable_pub)]
 pub mod config;
 mod error;
 pub mod fluent;
@@ -275,10 +281,28 @@ pub mod circuit_breaker;
 #[cfg_attr(docsrs, doc(cfg(feature = "openapi")))]
 pub mod openapi;
 
-pub use config::*;
-pub use error::*;
-pub use fluent::*;
-pub use utils::*;
+#[cfg(feature = "postgres")]
+pub use config::DatabaseConfig;
+#[cfg(feature = "keycloak")]
+pub use config::HttpOidcConfig;
+#[cfg(feature = "opentelemetry")]
+pub use config::OpenTelemetryConfig;
+pub use config::{
+    AllRoles, AnyRole, ApplicationRole, ApplicationRoles, AuthMethod, AuthenticatedIdentity, Byte,
+    Config, CorsHeader, CorsMethod, HttpConfig, HttpCorsConfig, HttpDeduplicationConfig,
+    HttpMiddleware, HttpMiddlewareConfig, HttpProxyOidcConfig, HttpXFrameConfig, LogFormat,
+    LoggingConfig, SharedIdentity, StaticDirConfig, StaticDirRoute, TracingBase, WithRole,
+    XFrameOptions,
+};
+#[cfg(feature = "basic-auth")]
+pub use config::{BasicAuthApiKey, BasicAuthMode, BasicAuthUser, HttpBasicAuthConfig};
+#[cfg(feature = "circuit-breaker")]
+pub use config::{CircuitBreakerConfig, CircuitBreakerTargetConfig};
+#[cfg(feature = "session")]
+pub use config::{SameSiteConfig, SessionStoreConfig};
+pub use error::{Error, ErrorKind, ErrorResponse};
+pub use fluent::{FluentRouter, Readiness, ShutdownNotifier, ShutdownPhase};
+pub use utils::{ApiVersion, Sensitive};
 
 /// Convenience alias for results returned by this crate, fixing the error type
 /// to [`Error`]. Use it as `axum_conf::Result<T>`.

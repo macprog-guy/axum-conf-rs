@@ -228,8 +228,6 @@ impl openidconnect::AdditionalProviderMetadata for EndSessionProviderMetadata {}
 
 /// `CoreProviderMetadata` with the `end_session_endpoint` extension.
 /// (Type parameters mirror openidconnect 4.0.1's `CoreProviderMetadata` alias.)
-// Wired in by the bearer-path/auth-code-flow tasks.
-#[allow(dead_code)]
 pub(crate) type DiscoveredProviderMetadata = openidconnect::ProviderMetadata<
     EndSessionProviderMetadata,
     CoreAuthDisplay,
@@ -280,8 +278,6 @@ fn resolve_end_session_url(
 /// Fetch provider metadata from `{issuer}/.well-known/openid-configuration`,
 /// retrying transient failures with the standard policy (same envelope as the
 /// startup JWKS fetch).
-// Wired in by the bearer-path/auth-code-flow tasks.
-#[allow(dead_code)]
 pub(crate) async fn discover_provider_metadata(issuer: &str) -> Result<DiscoveredProviderMetadata> {
     let issuer_url = IssuerUrl::new(issuer.to_string())
         .map_err(|e| Error::config(format!("Invalid OIDC issuer URL: {e}")))?;

@@ -37,22 +37,42 @@ where
     /// audiences = ["my-client"]
     /// client_id = "my-client"
     /// client_secret = "{{ KEYCLOAK_CLIENT_SECRET }}"
+    /// # jwks_url = "https://idp.example.com/pf/JWKS"  # optional: skip discovery
     /// ```
     #[cfg(feature = "keycloak")]
     pub async fn setup_oidc(mut self) -> Result<Self> {
         if let Some(oidc) = &self.config.http.oidc
             && self.is_middleware_enabled(HttpMiddleware::Oidc)
         {
+            let issuer = oidc.issuer();
+
             tracing::trace!(
                 realm = %oidc.realm,
                 issuer_url = %oidc.issuer_url,
+                issuer = %issuer,
                 auth_code_flow = oidc.auth_code_flow_enabled(),
                 "OIDC middleware enabled"
             );
 
-            let issuer_base = oidc.issuer_url.trim_end_matches('/');
-            let issuer = format!("{issuer_base}/realms/{}", oidc.realm);
-            let jwks_url = format!("{issuer}/protocol/openid-connect/certs");
+            let jwks_url = match &oidc.jwks_url {
+                // Explicit override: skip discovery entirely. Discovery's byte-exact
+                // issuer check is skipped too, so surface the derived issuer — a
+                // mismatch (e.g. a forgotten `realm = ""`) would otherwise only
+                // show up as runtime 401s.
+                Some(url) => {
+                    tracing::info!(
+                        issuer = %issuer,
+                        jwks_url = %url,
+                        "OIDC discovery skipped (jwks_url override); Bearer tokens validated against this issuer"
+                    );
+                    url.clone()
+                }
+                // Primary: resolve jwks_uri via OIDC discovery (provider-agnostic).
+                None => super::oidc_flow::discover_provider_metadata(&issuer)
+                    .await?
+                    .jwks_uri()
+                    .to_string(),
+            };
 
             let jwks = super::oidc_bearer::JwksProvider::new(
                 jwks_url,

@@ -20,6 +20,15 @@ use tokio::sync::RwLock;
 
 use crate::{AuthMethod, AuthenticatedIdentity, Error, Result, utils::Sensitive};
 
+/// Build the HTTP client used for OIDC discovery and JWKS fetches.
+/// Fallible (unlike `Client::new()`, which panics) so a broken native trust
+/// store surfaces as a clean startup config error.
+pub(crate) fn build_http_client() -> Result<openidconnect::reqwest::Client> {
+    openidconnect::reqwest::Client::builder()
+        .build()
+        .map_err(|e| Error::config(format!("failed to build OIDC HTTP client: {e}")))
+}
+
 /// Configuration for the Bearer JWT middleware.
 ///
 /// Validation parameters (issuer, audiences) live on the [`JwksProvider`]; this
@@ -62,7 +71,7 @@ impl JwksProvider {
         audiences: Vec<String>,
         is_production: bool,
     ) -> Result<Arc<Self>> {
-        let http_client = openidconnect::reqwest::Client::new();
+        let http_client = build_http_client()?;
         // Retry the initial fetch with bounded exponential backoff so a single
         // transient network hiccup at startup doesn't fail the whole service.
         let jwks = Self::fetch_jwks_with_retry(&http_client, &jwks_url).await?;
@@ -105,7 +114,7 @@ impl JwksProvider {
         Arc::new(Self {
             keys: RwLock::new(keys),
             jwks_url: "http://127.0.0.1:1/unreachable".to_string(),
-            http_client: openidconnect::reqwest::Client::new(),
+            http_client: build_http_client().expect("test client"),
             issuer: issuer.to_string(),
             audiences: audiences.to_vec(),
             is_production: false,

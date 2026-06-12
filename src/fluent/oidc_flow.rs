@@ -27,10 +27,11 @@ use openidconnect::{
     EndpointNotSet, EndpointSet, IssuerUrl, Nonce, OAuth2TokenResponse, PkceCodeChallenge,
     PkceCodeVerifier, RedirectUrl, Scope, TokenResponse,
     core::{
-        CoreAuthDisplay, CoreAuthPrompt, CoreErrorResponseType, CoreGenderClaim, CoreJsonWebKey,
-        CoreJweContentEncryptionAlgorithm, CoreProviderMetadata, CoreResponseType,
-        CoreRevocableToken, CoreRevocationErrorResponse, CoreTokenIntrospectionResponse,
-        CoreTokenResponse,
+        CoreAuthDisplay, CoreAuthPrompt, CoreClaimName, CoreClaimType, CoreClientAuthMethod,
+        CoreErrorResponseType, CoreGenderClaim, CoreGrantType, CoreJsonWebKey,
+        CoreJweContentEncryptionAlgorithm, CoreJweKeyManagementAlgorithm, CoreProviderMetadata,
+        CoreResponseMode, CoreResponseType, CoreRevocableToken, CoreRevocationErrorResponse,
+        CoreSubjectIdentifierType, CoreTokenIntrospectionResponse, CoreTokenResponse,
     },
 };
 use serde::Deserialize;
@@ -208,6 +209,93 @@ fn extract_end_session_endpoint(metadata: &CoreProviderMetadata) -> Option<Strin
     let issuer = metadata.issuer().as_str();
     // Keycloak end-session endpoint is typically at {issuer}/protocol/openid-connect/logout
     Some(format!("{issuer}/protocol/openid-connect/logout"))
+}
+
+// ---------------------------------------------------------------------------
+// Discovery infrastructure (provider metadata, error mapping, end-session URL)
+// ---------------------------------------------------------------------------
+
+/// Discovery metadata extension: `end_session_endpoint` (RP-Initiated Logout).
+/// Most providers advertise it, but openidconnect's `CoreProviderMetadata`
+/// has no typed field for it.
+// Wired in by the bearer-path/auth-code-flow tasks.
+#[allow(dead_code)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub(crate) struct EndSessionProviderMetadata {
+    end_session_endpoint: Option<String>,
+}
+impl openidconnect::AdditionalProviderMetadata for EndSessionProviderMetadata {}
+
+/// `CoreProviderMetadata` with the `end_session_endpoint` extension.
+/// (Type parameters mirror openidconnect 4.0.1's `CoreProviderMetadata` alias.)
+// Wired in by the bearer-path/auth-code-flow tasks.
+#[allow(dead_code)]
+pub(crate) type DiscoveredProviderMetadata = openidconnect::ProviderMetadata<
+    EndSessionProviderMetadata,
+    CoreAuthDisplay,
+    CoreClientAuthMethod,
+    CoreClaimName,
+    CoreClaimType,
+    CoreGrantType,
+    CoreJweContentEncryptionAlgorithm,
+    CoreJweKeyManagementAlgorithm,
+    CoreJsonWebKey,
+    CoreResponseMode,
+    CoreResponseType,
+    CoreSubjectIdentifierType,
+>;
+
+/// Classify discovery failures for retry: transport errors and 5xx are
+/// transient (`io`, retried); 4xx / parse / validation failures are
+/// deterministic misconfiguration (`config`, fail fast). Mirrors
+/// `JwksProvider::fetch_jwks` classification.
+fn map_discovery_error<RE>(e: openidconnect::DiscoveryError<RE>) -> Error
+where
+    RE: std::error::Error + 'static,
+{
+    match &e {
+        openidconnect::DiscoveryError::Request(_) => {
+            Error::io(format!("OIDC discovery failed: {e}"))
+        }
+        openidconnect::DiscoveryError::Response(status, _, _) if status.is_server_error() => {
+            Error::io(format!("OIDC discovery failed: {e}"))
+        }
+        _ => Error::config(format!("OIDC discovery failed: {e}")),
+    }
+}
+
+/// Resolve the RP-Initiated Logout endpoint: discovered value first, then the
+/// Keycloak convention (only when a realm is configured), else none.
+// Wired in by the bearer-path/auth-code-flow tasks.
+#[allow(dead_code)]
+fn resolve_end_session_url(
+    discovered: Option<String>,
+    issuer: &str,
+    realm_configured: bool,
+) -> Option<String> {
+    discovered
+        .or_else(|| realm_configured.then(|| format!("{issuer}/protocol/openid-connect/logout")))
+}
+
+/// Fetch provider metadata from `{issuer}/.well-known/openid-configuration`,
+/// retrying transient failures with the standard policy (same envelope as the
+/// startup JWKS fetch).
+// Wired in by the bearer-path/auth-code-flow tasks.
+#[allow(dead_code)]
+pub(crate) async fn discover_provider_metadata(issuer: &str) -> Result<DiscoveredProviderMetadata> {
+    let issuer_url = IssuerUrl::new(issuer.to_string())
+        .map_err(|e| Error::config(format!("Invalid OIDC issuer URL: {e}")))?;
+    let http_client = super::oidc_bearer::build_http_client()?;
+    crate::resilience::retry_transient(crate::resilience::RetryPolicy::default(), || {
+        let issuer_url = issuer_url.clone();
+        let http_client = &http_client;
+        async move {
+            DiscoveredProviderMetadata::discover_async(issuer_url, http_client)
+                .await
+                .map_err(map_discovery_error)
+        }
+    })
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -737,5 +825,54 @@ mod tests {
         // Should be after 2024-01-01 and before 2100-01-01
         assert!(now > 1_704_067_200);
         assert!(now < 4_102_444_800);
+    }
+
+    #[test]
+    fn discovery_error_classification() {
+        use openidconnect::DiscoveryError;
+        let io_err = || std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "refused");
+
+        // Transport failures and 5xx are transient (retried).
+        assert!(
+            map_discovery_error(DiscoveryError::<std::io::Error>::Request(io_err())).is_transient()
+        );
+        assert!(
+            map_discovery_error(DiscoveryError::<std::io::Error>::Response(
+                http::StatusCode::INTERNAL_SERVER_ERROR,
+                vec![],
+                "server error".into()
+            ))
+            .is_transient()
+        );
+
+        // 4xx and everything else is deterministic misconfiguration (fail fast).
+        assert!(
+            !map_discovery_error(DiscoveryError::<std::io::Error>::Response(
+                http::StatusCode::NOT_FOUND,
+                vec![],
+                "not found".into()
+            ))
+            .is_transient()
+        );
+        assert!(
+            !map_discovery_error(DiscoveryError::<std::io::Error>::Other("bad".into()))
+                .is_transient()
+        );
+    }
+
+    #[test]
+    fn end_session_url_resolution() {
+        // Discovered value wins.
+        assert_eq!(
+            resolve_end_session_url(Some("https://sso/logout".into()), "https://sso", true),
+            Some("https://sso/logout".to_string())
+        );
+        // Absent + realm configured: Keycloak-convention fallback (current behavior).
+        assert_eq!(
+            resolve_end_session_url(None, "https://kc/realms/r", true),
+            Some("https://kc/realms/r/protocol/openid-connect/logout".to_string())
+        );
+        // Absent + no realm: no RP-initiated logout (local logout only).
+        assert_eq!(resolve_end_session_url(None, "https://sso", false), None);
     }
 }

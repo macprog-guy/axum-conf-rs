@@ -13,7 +13,7 @@ rust-version = "1.92"
 # `humantime-serde` is used only through `#[serde(with = "humantime_serde")]`
 # attributes, which cargo-machete cannot see, so it reports a false positive.
 [package.metadata.cargo-machete]
-ignored = ["humantime-serde"]
+ignored = ["humantime-serde", "reqwest-system-roots"]
 
 # Build docs.rs with every feature enabled (default features are empty, so the
 # feature-gated middleware would otherwise be invisible) and pass `--cfg docsrs`
@@ -85,6 +85,13 @@ opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic"], optional = t
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"], optional = true }
 base64 = { version = "0.22", optional = true }
 openidconnect = { version = "4.0", default-features = false, features = ["reqwest", "rustls-tls"], optional = true }
+# Feature-unification-only dependency (never imported in code): enables
+# reqwest's `rustls-tls-native-roots` on the same reqwest 0.12 build that
+# openidconnect/oauth2 use, so the OIDC discovery + JWKS client trusts the
+# system CA store (SSL_CERT_FILE, /etc/ssl/certs/ca-certificates.crt) in
+# ADDITION to the bundled webpki roots. Renamed key: a `reqwest 0.13`
+# dev-dependency already exists and must stay independent.
+reqwest-system-roots = { package = "reqwest", version = "0.12", default-features = false, features = ["rustls-tls-native-roots"], optional = true }
 serde_json = { version = "1.0", optional = true }
 
 # OpenAPI documentation
@@ -175,7 +182,14 @@ production = [
 # Existing features
 postgres = ["rustls", "dep:sqlx", "dep:sqlx-postgres"]
 rustls = ["dep:rustls"]
-keycloak = ["session", "dep:jsonwebtoken", "dep:openidconnect", "dep:serde_json", "dep:base64"]
+keycloak = [
+    "session",
+    "dep:jsonwebtoken",
+    "dep:openidconnect",
+    "dep:serde_json",
+    "dep:base64",
+    "dep:reqwest-system-roots",
+]
 session = ["dep:tower-sessions"]
 opentelemetry = [
     "dep:tracing-opentelemetry",

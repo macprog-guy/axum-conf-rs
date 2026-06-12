@@ -1,14 +1,15 @@
 //! OIDC/Keycloak authentication configuration.
 //!
-//! This module provides configuration for OpenID Connect (OIDC) authentication,
-//! designed for use with Keycloak but compatible with other OIDC providers.
+//! This module provides configuration for OpenID Connect (OIDC) authentication.
+//! It is designed for Keycloak but works with any standard OIDC provider
+//! (PingFederate, Entra ID, Auth0, etc.) by setting `realm = ""`.
 //!
 //! # Feature Flag
 //!
 //! This module is always available, but the OIDC middleware is only enabled
 //! with the `keycloak` feature flag.
 //!
-//! # Bearer-Only Example (API)
+//! # Bearer-Only Example (API) — Keycloak
 //!
 //! ```toml
 //! [http.oidc]
@@ -17,6 +18,18 @@
 //! client_id = "my-app"
 //! client_secret = "{{ OIDC_CLIENT_SECRET }}"
 //! audiences = ["my-app", "api"]
+//! ```
+//!
+//! # Bearer-Only Example (API) — Generic OIDC provider
+//!
+//! Set `realm = ""` to use `issuer_url` verbatim (no `/realms/{realm}` suffix).
+//!
+//! ```toml
+//! [http.oidc]
+//! issuer_url = "https://sso.example.com/idp"
+//! realm = ""
+//! client_id = "my-app"
+//! client_secret = "{{ OIDC_CLIENT_SECRET }}"
 //! ```
 //!
 //! # Authorization Code Flow Example (Browser)
@@ -48,8 +61,9 @@ use serde::Deserialize;
 
 /// Configuration for OIDC (OpenID Connect) authentication.
 ///
-/// Used to configure authentication against an OIDC provider like Keycloak.
-/// All fields are required except `audiences` which defaults to an empty list.
+/// Used to configure authentication against any OIDC provider.
+/// All fields are required except `audiences` (defaults to empty) and
+/// `jwks_url` (defaults to unset, resolved from OIDC discovery).
 ///
 /// When `redirect_uri` is set, the Authorization Code flow is enabled with
 /// login, callback, and logout routes. Without it, only Bearer token
@@ -58,9 +72,15 @@ use serde::Deserialize;
 /// # Required Configuration
 ///
 /// - `issuer_url` - Base URL of the OIDC provider (e.g., `https://keycloak.example.com`)
-/// - `realm` - The OIDC realm/tenant name
+/// - `realm` - Realm/tenant appended as `/realms/{realm}` (Keycloak convention).
+///   Set to `""` to use `issuer_url` verbatim for non-Keycloak providers
+///   (PingFederate, Entra ID, Auth0, etc.).
 /// - `client_id` - OAuth2 client ID for this application
 /// - `client_secret` - OAuth2 client secret (use environment variable substitution)
+///
+/// # Optional Overrides
+///
+/// - `jwks_url` - Explicit JWKS endpoint. Skips OIDC discovery when set.
 ///
 /// # Authorization Code Flow (optional)
 ///
@@ -77,12 +97,20 @@ pub struct HttpOidcConfig {
     /// Base issuer URL of the OIDC provider (e.g. `https://keycloak.example.com`).
     #[serde(default)]
     pub issuer_url: String,
-    /// Realm name appended to the issuer URL. Defaults to `"my-app"`.
+    /// Realm name appended to `issuer_url` as `/realms/{realm}` (Keycloak convention).
+    /// Defaults to `"my-app"`. Set to `""` to use `issuer_url` verbatim for
+    /// non-Keycloak providers (PingFederate, Entra ID, Auth0, etc.).
     #[serde(default = "HttpOidcConfig::default_realm")]
     pub realm: String,
     /// Expected `aud` claim values. When empty, audience validation is disabled.
     #[serde(default)]
     pub audiences: Vec<String>,
+    /// Explicit JWKS endpoint URL. When set, the bearer-token path fetches
+    /// signing keys from this URL directly and **skips OIDC discovery**.
+    /// Leave unset (recommended) to resolve `jwks_uri` from
+    /// `{issuer}/.well-known/openid-configuration`.
+    #[serde(default)]
+    pub jwks_url: Option<String>,
     /// OAuth2 client identifier registered with the provider.
     pub client_id: String,
     /// OAuth2 client secret (redacted from logs via [`Sensitive`]).
@@ -165,6 +193,20 @@ impl HttpOidcConfig {
         self.redirect_uri.is_some()
     }
 
+    /// Full OIDC issuer URL used for discovery and `iss` claim validation.
+    ///
+    /// When `realm` is non-empty (default `"my-app"`, Keycloak convention) this is
+    /// `{issuer_url}/realms/{realm}`. Set `realm = ""` to use `issuer_url`
+    /// verbatim (provider-agnostic: PingFederate, Entra ID, Auth0, ...).
+    pub fn issuer(&self) -> String {
+        let base = self.issuer_url.trim_end_matches('/');
+        if self.realm.trim().is_empty() {
+            base.to_string()
+        } else {
+            format!("{base}/realms/{}", self.realm)
+        }
+    }
+
     /// Validates the OIDC configuration, returning an error with actionable
     /// guidance when a required field is missing or inconsistent.
     pub fn validate(&self) -> Result<()> {
@@ -177,12 +219,6 @@ impl HttpOidcConfig {
         if !self.issuer_url.starts_with("http://") && !self.issuer_url.starts_with("https://") {
             return Err(Error::invalid_input(
                 "OIDC issuer_url must start with http:// or https://. Example: \"https://keycloak.example.com\"",
-            ));
-        }
-
-        if self.realm.trim().is_empty() {
-            return Err(Error::invalid_input(
-                "OIDC realm is required. Set [http.oidc] realm = \"your-realm\" in config.",
             ));
         }
 
@@ -205,6 +241,15 @@ impl HttpOidcConfig {
         {
             return Err(Error::invalid_input(
                 "OIDC redirect_uri must start with http:// or https://.",
+            ));
+        }
+
+        if let Some(jwks_url) = &self.jwks_url
+            && !jwks_url.starts_with("http://")
+            && !jwks_url.starts_with("https://")
+        {
+            return Err(Error::invalid_input(
+                "OIDC jwks_url must start with http:// or https://.",
             ));
         }
 
@@ -259,6 +304,7 @@ format = "json"
         assert_eq!(oidc.login_route, "/auth/login");
         assert_eq!(oidc.callback_route, "/auth/callback");
         assert_eq!(oidc.logout_route, "/auth/logout");
+        assert!(oidc.jwks_url.is_none());
     }
 
     #[tokio::test]
@@ -324,5 +370,86 @@ format = "json"
             ..config
         };
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_issuer_keycloak_template() {
+        let config = HttpOidcConfig {
+            issuer_url: "https://keycloak.example.com/".into(), // trailing slash trimmed
+            realm: "my-realm".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            config.issuer(),
+            "https://keycloak.example.com/realms/my-realm"
+        );
+    }
+
+    #[test]
+    fn test_issuer_verbatim_when_realm_empty() {
+        let config = HttpOidcConfig {
+            issuer_url: "https://sso.example.com".into(),
+            realm: "".into(),
+            ..Default::default()
+        };
+        assert_eq!(config.issuer(), "https://sso.example.com");
+    }
+
+    #[test]
+    fn test_validate_allows_empty_realm() {
+        let config = HttpOidcConfig {
+            issuer_url: "https://sso.example.com".into(),
+            realm: "".into(),
+            client_id: "app".into(),
+            client_secret: Sensitive::from("secret"),
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_bad_jwks_url_scheme() {
+        let config = HttpOidcConfig {
+            issuer_url: "https://sso.example.com".into(),
+            realm: "".into(),
+            client_id: "app".into(),
+            client_secret: Sensitive::from("secret"),
+            jwks_url: Some("ftp://example.com/jwks".into()),
+            ..Default::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_jwks_url_parsing() {
+        let toml_str = r#"
+[database]
+url = "postgres://test:test@localhost:5432/test"
+max_pool_size = 5
+
+[http]
+bind_addr = "127.0.0.1"
+bind_port = 3000
+max_concurrent_requests = 100
+max_payload_size_bytes = "1KiB"
+
+[http.oidc]
+issuer_url = "https://keycloak.example.com"
+realm = "test-realm"
+client_id = "my-client"
+client_secret = "my-secret"
+jwks_url = "https://sso.example.com/pf/JWKS"
+
+[logging]
+format = "json"
+    "#;
+
+        let config: Config = toml_str.parse().expect("Failed to parse config");
+
+        let oidc = config.http.oidc.unwrap();
+        assert_eq!(
+            oidc.jwks_url,
+            Some("https://sso.example.com/pf/JWKS".to_string())
+        );
     }
 }

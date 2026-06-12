@@ -1326,33 +1326,6 @@ format = "compact"
     }
 
     #[test]
-    #[cfg(feature = "keycloak")]
-    fn test_validate_oidc_empty_realm() {
-        use crate::config::http::HttpOidcConfig;
-        use crate::utils::Sensitive;
-
-        let mut config = Config::new();
-        #[cfg(feature = "postgres")]
-        {
-            config.database.url = "postgres://localhost/test".to_string();
-        }
-        config.http.oidc = Some(HttpOidcConfig {
-            issuer_url: "https://example.com".to_string(),
-            realm: "".to_string(),
-            audiences: vec![],
-            client_id: "test-client".to_string(),
-            client_secret: Sensitive::from("test-secret"),
-            ..Default::default()
-        });
-
-        let result = config.validate();
-        assert!(
-            result.is_err(),
-            "Expected validation to fail with empty realm"
-        );
-    }
-
-    #[test]
     fn test_validate_static_dir_empty_directory_path() {
         use crate::config::http::{StaticDirConfig, StaticDirRoute};
 

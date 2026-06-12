@@ -106,10 +106,11 @@ max_age = "1h"                        # Preflight cache duration (humantime form
 # =============================================================================
 [http.oidc]
 issuer_url = "https://keycloak.example.com"
-realm = "myrealm"
+realm = "myrealm"  # Issuer = {issuer_url}/realms/{realm}; set "" to use issuer_url verbatim
 client_id = "my-service"
 client_secret = "{{ OIDC_CLIENT_SECRET }}"  # Use env var substitution
 audiences = ["my-service", "account"]        # Expected JWT audiences
+# jwks_url = "https://sso.example.com/pf/JWKS"  # Optional: fetch keys directly, skip OIDC discovery
 
 # Authorization Code Flow (optional — enabled by setting redirect_uri)
 redirect_uri = "https://myapp.example.com/auth/callback"  # Enables login flow

@@ -53,6 +53,63 @@ post_login_redirect = "/dashboard"
 post_logout_redirect = "/"
 ```
 
+### Provider Compatibility (PingFederate, Entra ID, Auth0, …)
+
+Bearer-token signing keys are resolved via **OIDC discovery**: the library reads
+`{issuer}/.well-known/openid-configuration` and fetches the advertised `jwks_uri`,
+so any spec-compliant provider works — Keycloak's URL layout is not assumed.
+
+The issuer is derived from `issuer_url` and `realm`:
+
+- `realm` set (Keycloak convention): issuer = `{issuer_url}/realms/{realm}`.
+- `realm = ""`: issuer = `issuer_url` **verbatim** — set it to the provider's exact
+  advertised issuer (byte-exact; discovery validates the match).
+
+```toml
+# PingFederate / any spec-compliant provider: realm = "" uses issuer_url verbatim
+[http.oidc]
+issuer_url = "https://sso.example.com"   # the provider's exact advertised issuer
+realm = ""
+client_id = "my-app"
+client_secret = "{{ OIDC_CLIENT_SECRET }}"
+audiences = ["my-app"]
+```
+
+If the provider's `/.well-known` endpoint is unreachable from your pods (or you want to
+skip the startup discovery roundtrip), set `jwks_url` to fetch keys directly and skip
+discovery entirely. Note that this also skips discovery's byte-exact issuer check, so
+double-check the derived issuer (logged at `info` level at startup):
+
+```toml
+# Explicit JWKS override (skips discovery entirely)
+[http.oidc]
+issuer_url = "https://sso.example.com"
+realm = ""
+jwks_url = "https://sso.example.com/pf/JWKS"
+client_id = "my-app"
+client_secret = "{{ OIDC_CLIENT_SECRET }}"
+audiences = ["my-app"]
+```
+
+The browser logout route uses the provider's discovered `end_session_endpoint`
+(RP-Initiated Logout); when a provider omits it, the Keycloak convention is used as a
+fallback if a `realm` is configured, otherwise logout just clears the session locally.
+
+### Corporate / Private CAs
+
+The HTTP client used for OIDC discovery and JWKS fetches trusts the **system CA store in
+addition to** the bundled webpki (Mozilla) roots. If your IdP presents a certificate signed
+by a corporate CA, either:
+
+- bake the bundle into the image at `/etc/ssl/certs/ca-certificates.crt` (works in
+  `FROM scratch` images), or
+- point `SSL_CERT_FILE=/path/to/corp-ca.pem` (or `SSL_CERT_DIR`) at it.
+
+When `SSL_CERT_FILE`/`SSL_CERT_DIR` is set it replaces the OS trust store as the *system*
+root source; the bundled webpki (Mozilla) roots are still trusted alongside it, so public
+IdPs keep working. No configuration inside `[http.oidc]` is needed, and public IdPs keep
+working even when the image has no system store at all.
+
 ## Using AuthenticatedIdentity
 
 `AuthenticatedIdentity` is the primary extractor for all authentication methods. It works with both Bearer-only and Auth Code Flow modes.
@@ -391,11 +448,12 @@ async fn main() -> Result<()> {
 
 | Option | Description | Required | Default |
 |--------|-------------|----------|---------|
-| `issuer_url` | Base URL of the OIDC provider | Yes | — |
-| `realm` | OIDC realm/tenant name | Yes | `"my-app"` |
+| `issuer_url` | Base URL of the OIDC provider (the exact advertised issuer when `realm = ""`) | Yes | — |
+| `realm` | OIDC realm appended as `/realms/{realm}` (Keycloak); `""` uses `issuer_url` verbatim | No | `"my-app"` |
 | `client_id` | OAuth2 client identifier | Yes | — |
 | `client_secret` | OAuth2 client secret | Yes | — |
 | `audiences` | Expected JWT audiences (aud claim) | No | `[]` |
+| `jwks_url` | Explicit JWKS endpoint; skips OIDC discovery when set | No | — (use discovery) |
 | `redirect_uri` | Callback URL; enables auth code flow when set | No | — |
 | `scopes` | OAuth2 scopes to request | No | `["openid"]` |
 | `post_login_redirect` | Redirect destination after login | No | `"/"` |

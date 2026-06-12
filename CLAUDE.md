@@ -143,7 +143,7 @@ All authentication methods produce a unified `AuthenticatedIdentity` (defined in
 
 - **Basic Auth** (`basic-auth` feature) - HTTP Basic Auth and API Key authentication
 - **OIDC** (`keycloak` feature) - Two modes:
-  - **Bearer-only** (default) - Validates JWT tokens in `Authorization: Bearer` headers
+  - **Bearer-only** (default) - Validates JWT tokens in `Authorization: Bearer` headers. Signing keys are resolved via OIDC discovery (`{issuer}/.well-known/openid-configuration` → `jwks_uri`), so any spec-compliant provider works; the optional `jwks_url` config field skips discovery. `realm = ""` makes `issuer_url` the verbatim issuer (non-Keycloak providers)
   - **Authorization Code Flow** - Full login/callback/logout flow when `redirect_uri` is configured; uses PKCE, CSRF state, nonce validation; stores tokens in session with transparent refresh
 - **Proxy OIDC** (no feature flag) - Identity from reverse proxy headers (e.g., oauth2-proxy)
 

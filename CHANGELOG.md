@@ -7,8 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Bearer-path JWKS is now resolved via OIDC discovery** (`{issuer}/.well-known/openid-configuration`
+  → `jwks_uri`) instead of the hardcoded Keycloak template `{issuer}/realms/{realm}/protocol/openid-connect/certs`,
+  making Bearer authentication provider-agnostic (PingFederate, Entra ID, Auth0, …). For Keycloak
+  deployments behavior is identical (Keycloak's advertised `jwks_uri` equals the old templated URL);
+  the only wire-level difference is one extra GET at startup, retried with the same transient-failure
+  policy as the JWKS fetch. **Action may be required for downstream tests:** suites that stub only the
+  `/protocol/openid-connect/certs` endpoint must either also stub `/.well-known/openid-configuration`
+  or set the new `jwks_url` override to point directly at the stub.
+- **The RP-initiated logout endpoint is now read from discovery** (typed `end_session_endpoint`
+  field) instead of being templated from the Keycloak convention. When the provider omits it,
+  the old Keycloak template is still used as a fallback if a `realm` is configured; otherwise
+  logout simply clears the session and redirects to `post_logout_redirect`.
+
+### Added
+- Provider-agnostic OIDC issuer: setting `[http.oidc] realm = ""` now uses `issuer_url`
+  verbatim as the OIDC issuer (no `/realms/{realm}` suffix). Omitting `realm` keeps the
+  Keycloak behavior unchanged.
+- New optional `[http.oidc] jwks_url` field: when set, the Bearer path fetches signing keys
+  from this URL directly and skips OIDC discovery entirely (escape hatch for providers whose
+  `/.well-known` endpoint is unreachable, or to avoid the startup discovery roundtrip).
+
+### Fixed
+- **The OIDC HTTP client (discovery + JWKS) now trusts the system CA store** — `SSL_CERT_FILE`,
+  `SSL_CERT_DIR`, `/etc/ssl/certs/ca-certificates.crt` — in addition to the bundled webpki
+  (Mozilla) roots. Corporate/private CAs baked into container images are now honored when the
+  IdP serves a certificate signed by them. Additive only: everything that validated before
+  still validates. (Implemented via reqwest's `rustls-tls-native-roots` on the shared
+  reqwest 0.12 build, so it also applies to downstream binaries sharing that build.)
+
+## [0.6.0] - 2026-06-11
+
 ### Breaking
-> The breaking changes below are batched toward the next `0.6.0` release.
 - Replaced the crate's glob re-exports (`pub use config::*`, etc.) with an explicit, curated
   public surface, and enabled `#![deny(unreachable_pub)]` so a forgotten re-export is a compile
   error. As part of this, three types that were only ever exposed accidentally by the globs are

@@ -29,8 +29,8 @@ use openidconnect::{
     core::{
         CoreAuthDisplay, CoreAuthPrompt, CoreClaimName, CoreClaimType, CoreClientAuthMethod,
         CoreErrorResponseType, CoreGenderClaim, CoreGrantType, CoreJsonWebKey,
-        CoreJweContentEncryptionAlgorithm, CoreJweKeyManagementAlgorithm, CoreProviderMetadata,
-        CoreResponseMode, CoreResponseType, CoreRevocableToken, CoreRevocationErrorResponse,
+        CoreJweContentEncryptionAlgorithm, CoreJweKeyManagementAlgorithm, CoreResponseMode,
+        CoreResponseType, CoreRevocableToken, CoreRevocationErrorResponse,
         CoreSubjectIdentifierType, CoreTokenIntrospectionResponse, CoreTokenResponse,
     },
 };
@@ -91,34 +91,37 @@ pub(crate) struct OidcClient {
 impl OidcClient {
     /// Performs OIDC Discovery and creates the client.
     pub(crate) async fn discover(config: &HttpOidcConfig) -> Result<Self> {
-        let issuer_url = format!(
-            "{}/realms/{}",
-            config.issuer_url.trim_end_matches('/'),
-            config.realm
+        let issuer_url = config.issuer();
+
+        let provider_metadata = discover_provider_metadata(&issuer_url).await?;
+
+        // RP-Initiated Logout endpoint: typed discovery value, Keycloak-convention
+        // fallback only when a realm is configured (legacy behavior), else none.
+        let end_session_url = resolve_end_session_url(
+            provider_metadata
+                .additional_metadata()
+                .end_session_endpoint
+                .clone(),
+            &issuer_url,
+            !config.realm.trim().is_empty(),
         );
-        let issuer = IssuerUrl::new(issuer_url.clone())
-            .map_err(|e| Error::config(format!("Invalid OIDC issuer URL: {e}")))?;
 
-        let http_client = openidconnect::reqwest::Client::new();
-
-        let provider_metadata = CoreProviderMetadata::discover_async(issuer, &http_client)
-            .await
-            .map_err(|e| Error::config(format!("OIDC discovery failed: {e}")))?;
-
-        // Try to extract end_session_endpoint from raw discovery JSON.
-        // Keycloak advertises this, but it's not in CoreProviderMetadata's typed fields.
-        let end_session_url = extract_end_session_endpoint(&provider_metadata);
+        // `from_provider_metadata` consumes `provider_metadata`, so capture the
+        // JWKS URI string before that call.
+        let jwks_uri = provider_metadata.jwks_uri().to_string();
 
         // A JWKS view used only to re-verify the signature of stored ID tokens on
         // the session path. The ID token's audience is the client id; production
         // fail-closed-on-empty-audiences doesn't apply (audiences is non-empty).
         let id_token_keys = super::oidc_bearer::JwksProvider::new(
-            provider_metadata.jwks_uri().to_string(),
-            issuer_url,
+            jwks_uri,
+            issuer_url.clone(),
             vec![config.client_id.clone()],
             false,
         )
         .await?;
+
+        let http_client = super::oidc_bearer::build_http_client()?;
 
         let redirect_uri = config
             .redirect_uri
@@ -201,16 +204,6 @@ pub(crate) struct RefreshedTokens {
     pub expiry: u64,
 }
 
-/// Extract end_session_endpoint from OIDC discovery metadata.
-/// This field is part of the RP-Initiated Logout spec and Keycloak advertises it,
-/// but `openidconnect`'s `CoreProviderMetadata` doesn't expose it as a typed field.
-fn extract_end_session_endpoint(metadata: &CoreProviderMetadata) -> Option<String> {
-    // The ProviderMetadata exposes issuer URL — construct the end-session URL from Keycloak convention
-    let issuer = metadata.issuer().as_str();
-    // Keycloak end-session endpoint is typically at {issuer}/protocol/openid-connect/logout
-    Some(format!("{issuer}/protocol/openid-connect/logout"))
-}
-
 // ---------------------------------------------------------------------------
 // Discovery infrastructure (provider metadata, error mapping, end-session URL)
 // ---------------------------------------------------------------------------
@@ -218,8 +211,6 @@ fn extract_end_session_endpoint(metadata: &CoreProviderMetadata) -> Option<Strin
 /// Discovery metadata extension: `end_session_endpoint` (RP-Initiated Logout).
 /// Most providers advertise it, but openidconnect's `CoreProviderMetadata`
 /// has no typed field for it.
-// Wired in by the bearer-path/auth-code-flow tasks.
-#[allow(dead_code)]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub(crate) struct EndSessionProviderMetadata {
     end_session_endpoint: Option<String>,
@@ -264,8 +255,6 @@ where
 
 /// Resolve the RP-Initiated Logout endpoint: discovered value first, then the
 /// Keycloak convention (only when a realm is configured), else none.
-// Wired in by the bearer-path/auth-code-flow tasks.
-#[allow(dead_code)]
 fn resolve_end_session_url(
     discovered: Option<String>,
     issuer: &str,

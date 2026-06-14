@@ -61,15 +61,15 @@ so any spec-compliant provider works — Keycloak's URL layout is not assumed.
 
 The issuer is derived from `issuer_url` and `realm`:
 
+- `realm` **unset (default)**: issuer = `issuer_url` **verbatim** — set it to the
+  provider's exact advertised issuer (byte-exact; discovery validates the match).
+  This is the provider-agnostic default.
 - `realm` set (Keycloak convention): issuer = `{issuer_url}/realms/{realm}`.
-- `realm = ""`: issuer = `issuer_url` **verbatim** — set it to the provider's exact
-  advertised issuer (byte-exact; discovery validates the match).
 
 ```toml
-# PingFederate / any spec-compliant provider: realm = "" uses issuer_url verbatim
+# PingFederate / any spec-compliant provider: omit realm to use issuer_url verbatim
 [http.oidc]
 issuer_url = "https://sso.example.com"   # the provider's exact advertised issuer
-realm = ""
 client_id = "my-app"
 client_secret = "{{ OIDC_CLIENT_SECRET }}"
 audiences = ["my-app"]
@@ -84,7 +84,6 @@ double-check the derived issuer (logged at `info` level at startup):
 # Explicit JWKS override (skips discovery entirely)
 [http.oidc]
 issuer_url = "https://sso.example.com"
-realm = ""
 jwks_url = "https://sso.example.com/pf/JWKS"
 client_id = "my-app"
 client_secret = "{{ OIDC_CLIENT_SECRET }}"
@@ -448,8 +447,8 @@ async fn main() -> Result<()> {
 
 | Option | Description | Required | Default |
 |--------|-------------|----------|---------|
-| `issuer_url` | Base URL of the OIDC provider (the exact advertised issuer when `realm = ""`) | Yes | — |
-| `realm` | OIDC realm appended as `/realms/{realm}` (Keycloak); `""` uses `issuer_url` verbatim | No | `"my-app"` |
+| `issuer_url` | Base URL of the OIDC provider (the exact advertised issuer when `realm` is unset) | Yes | — |
+| `realm` | OIDC realm appended as `/realms/{realm}` (Keycloak); unset uses `issuer_url` verbatim | No | `""` (verbatim) |
 | `client_id` | OAuth2 client identifier | Yes | — |
 | `client_secret` | OAuth2 client secret | Yes | — |
 | `audiences` | Expected JWT audiences (aud claim) | No | `[]` |

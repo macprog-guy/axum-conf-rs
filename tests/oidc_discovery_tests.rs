@@ -163,3 +163,21 @@ async fn discovery_404_fails_startup() {
         "unexpected error: {err}"
     );
 }
+
+#[tokio::test]
+async fn discovery_404_with_realm_hints_to_unset_realm() {
+    // The stub serves discovery only at the verbatim path. Configuring a realm
+    // makes the client look under /realms/<realm>/.well-known, which 404s — the
+    // exact failure a non-Keycloak consumer hits when migrating. The error must
+    // point them at unsetting `realm`.
+    let (base, _hits) = spawn_stub_idp(None, true).await;
+    let err = build_router(oidc_config(&base, "not-keycloak", None))
+        .await
+        .unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains("discovery"), "unexpected error: {msg}");
+    assert!(
+        msg.contains("unset") && msg.contains("realm"),
+        "expected an actionable realm hint, got: {msg}"
+    );
+}

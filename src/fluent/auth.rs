@@ -57,8 +57,8 @@ where
             let jwks_url = match &oidc.jwks_url {
                 // Explicit override: skip discovery entirely. Discovery's byte-exact
                 // issuer check is skipped too, so surface the derived issuer — a
-                // mismatch (e.g. a forgotten `realm = ""`) would otherwise only
-                // show up as runtime 401s.
+                // mismatch (e.g. a stray `realm` on a non-Keycloak provider) would
+                // otherwise only show up as runtime 401s.
                 Some(url) => {
                     tracing::info!(
                         issuer = %issuer,
@@ -68,7 +68,7 @@ where
                     url.clone()
                 }
                 // Primary: resolve jwks_uri via OIDC discovery (provider-agnostic).
-                None => super::oidc_flow::discover_provider_metadata(&issuer)
+                None => super::oidc_flow::discover_provider_metadata(&issuer, &oidc.realm)
                     .await?
                     .jwks_uri()
                     .to_string(),

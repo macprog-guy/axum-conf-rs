@@ -93,7 +93,7 @@ impl OidcClient {
     pub(crate) async fn discover(config: &HttpOidcConfig) -> Result<Self> {
         let issuer_url = config.issuer();
 
-        let provider_metadata = discover_provider_metadata(&issuer_url).await?;
+        let provider_metadata = discover_provider_metadata(&issuer_url, &config.realm).await?;
 
         // RP-Initiated Logout endpoint: typed discovery value, Keycloak-convention
         // fallback only when a realm is configured (legacy behavior), else none.
@@ -267,7 +267,15 @@ fn resolve_end_session_url(
 /// Fetch provider metadata from `{issuer}/.well-known/openid-configuration`,
 /// retrying transient failures with the standard policy (same envelope as the
 /// startup JWKS fetch).
-pub(crate) async fn discover_provider_metadata(issuer: &str) -> Result<DiscoveredProviderMetadata> {
+///
+/// `realm` is the configured realm (empty when unset). When discovery fails and
+/// a realm *is* configured, the error gains an actionable hint — this is the
+/// failure a non-Keycloak consumer hits during migration, where the realm-shaped
+/// issuer is the likely culprit.
+pub(crate) async fn discover_provider_metadata(
+    issuer: &str,
+    realm: &str,
+) -> Result<DiscoveredProviderMetadata> {
     let issuer_url = IssuerUrl::new(issuer.to_string())
         .map_err(|e| Error::config(format!("Invalid OIDC issuer URL: {e}")))?;
     let http_client = super::oidc_bearer::build_http_client()?;
@@ -281,6 +289,23 @@ pub(crate) async fn discover_provider_metadata(issuer: &str) -> Result<Discovere
         }
     })
     .await
+    .map_err(|e| with_realm_hint(e, issuer, realm))
+}
+
+/// Append an actionable hint to a discovery error when a `realm` is configured,
+/// preserving the original error kind (so retry/fail-fast classification is
+/// unchanged). Non-Keycloak providers that mistakenly inherit a realm resolve to
+/// a `/realms/{realm}` issuer that 404s at discovery; this tells them to unset it.
+fn with_realm_hint(err: Error, issuer: &str, realm: &str) -> Error {
+    if realm.trim().is_empty() {
+        return err;
+    }
+    Error::new(
+        err.kind(),
+        format!(
+            "{err}; issuer resolved to `{issuer}`; if your provider is not Keycloak, unset `realm`"
+        ),
+    )
 }
 
 // ---------------------------------------------------------------------------

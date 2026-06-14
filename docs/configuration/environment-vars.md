@@ -64,8 +64,7 @@ export DATABASE_URL="postgres://user:password@host:5432/database"
 
 ```toml
 [http.oidc]
-issuer_url = "https://keycloak.example.com/realms/myrealm"
-realm = "myrealm"
+issuer_url = "https://keycloak.example.com/realms/myrealm"  # realm unset: issuer_url used verbatim
 client_id = "my-service"
 client_secret = "{{ OIDC_CLIENT_SECRET }}"
 audiences = ["my-service"]

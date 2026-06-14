@@ -1,15 +1,31 @@
 //! OIDC/Keycloak authentication configuration.
 //!
 //! This module provides configuration for OpenID Connect (OIDC) authentication.
-//! It is designed for Keycloak but works with any standard OIDC provider
-//! (PingFederate, Entra ID, Auth0, etc.) by setting `realm = ""`.
+//! It is provider-agnostic by default: `issuer_url` is used verbatim, so any
+//! standard OIDC provider (PingFederate, Entra ID, Auth0, etc.) works out of the
+//! box. Keycloak's `/realms/{realm}` shape is opt-in via `realm = "your-realm"`.
 //!
 //! # Feature Flag
 //!
 //! This module is always available, but the OIDC middleware is only enabled
 //! with the `keycloak` feature flag.
 //!
+//! # Bearer-Only Example (API) — Generic OIDC provider (default)
+//!
+//! With `realm` unset, `issuer_url` is used verbatim — set it to the provider's
+//! exact advertised issuer.
+//!
+//! ```toml
+//! [http.oidc]
+//! issuer_url = "https://sso.example.com/idp"
+//! client_id = "my-app"
+//! client_secret = "{{ OIDC_CLIENT_SECRET }}"
+//! audiences = ["my-app", "api"]
+//! ```
+//!
 //! # Bearer-Only Example (API) — Keycloak
+//!
+//! Set `realm` to opt into Keycloak's `{issuer_url}/realms/{realm}` issuer shape.
 //!
 //! ```toml
 //! [http.oidc]
@@ -18,18 +34,6 @@
 //! client_id = "my-app"
 //! client_secret = "{{ OIDC_CLIENT_SECRET }}"
 //! audiences = ["my-app", "api"]
-//! ```
-//!
-//! # Bearer-Only Example (API) — Generic OIDC provider
-//!
-//! Set `realm = ""` to use `issuer_url` verbatim (no `/realms/{realm}` suffix).
-//!
-//! ```toml
-//! [http.oidc]
-//! issuer_url = "https://sso.example.com/idp"
-//! realm = ""
-//! client_id = "my-app"
-//! client_secret = "{{ OIDC_CLIENT_SECRET }}"
 //! ```
 //!
 //! # Authorization Code Flow Example (Browser)
@@ -73,8 +77,9 @@ use serde::Deserialize;
 ///
 /// - `issuer_url` - Base URL of the OIDC provider (e.g., `https://keycloak.example.com`)
 /// - `realm` - Realm/tenant appended as `/realms/{realm}` (Keycloak convention).
-///   Set to `""` to use `issuer_url` verbatim for non-Keycloak providers
-///   (PingFederate, Entra ID, Auth0, etc.).
+///   **Optional**: when unset, `issuer_url` is used verbatim, which is the
+///   provider-agnostic default (PingFederate, Entra ID, Auth0, etc.). Set
+///   `realm = "your-realm"` only for Keycloak.
 /// - `client_id` - OAuth2 client ID for this application
 /// - `client_secret` - OAuth2 client secret (use environment variable substitution)
 ///
@@ -98,9 +103,10 @@ pub struct HttpOidcConfig {
     #[serde(default)]
     pub issuer_url: String,
     /// Realm name appended to `issuer_url` as `/realms/{realm}` (Keycloak convention).
-    /// Defaults to `"my-app"`. Set to `""` to use `issuer_url` verbatim for
-    /// non-Keycloak providers (PingFederate, Entra ID, Auth0, etc.).
-    #[serde(default = "HttpOidcConfig::default_realm")]
+    /// **Defaults to empty**, meaning `issuer_url` is used verbatim
+    /// (provider-agnostic: PingFederate, Entra ID, Auth0, etc.). Set
+    /// `realm = "your-realm"` to opt into Keycloak's `/realms/{realm}` shape.
+    #[serde(default)]
     pub realm: String,
     /// Expected `aud` claim values. When empty, audience validation is disabled.
     #[serde(default)]
@@ -160,10 +166,6 @@ pub struct HttpOidcConfig {
 
 #[allow(unused)]
 impl HttpOidcConfig {
-    pub(crate) fn default_realm() -> String {
-        "my-app".into()
-    }
-
     pub(crate) fn default_scopes() -> Vec<String> {
         vec!["openid".into()]
     }
@@ -195,9 +197,10 @@ impl HttpOidcConfig {
 
     /// Full OIDC issuer URL used for discovery and `iss` claim validation.
     ///
-    /// When `realm` is non-empty (default `"my-app"`, Keycloak convention) this is
-    /// `{issuer_url}/realms/{realm}`. Set `realm = ""` to use `issuer_url`
-    /// verbatim (provider-agnostic: PingFederate, Entra ID, Auth0, ...).
+    /// By default (`realm` unset/empty) this is `issuer_url` **verbatim**
+    /// (provider-agnostic: PingFederate, Entra ID, Auth0, ...). Set
+    /// `realm = "your-realm"` to opt into Keycloak's `{issuer_url}/realms/{realm}`
+    /// shape.
     pub fn issuer(&self) -> String {
         let base = self.issuer_url.trim_end_matches('/');
         if self.realm.trim().is_empty() {
@@ -370,6 +373,32 @@ format = "json"
             ..config
         };
         assert!(config.validate().is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_realm_defaults_to_verbatim_issuer() {
+        // Omitting `realm` must use `issuer_url` verbatim (provider-agnostic
+        // default), not the legacy Keycloak `{issuer_url}/realms/my-app` shape.
+        let toml_str = r#"
+[http]
+bind_addr = "127.0.0.1"
+bind_port = 3000
+max_concurrent_requests = 100
+max_payload_size_bytes = "1KiB"
+
+[http.oidc]
+issuer_url = "https://sso.example.com/idp"
+client_id = "my-client"
+client_secret = "my-secret"
+
+[logging]
+format = "json"
+    "#;
+
+        let config: Config = toml_str.parse().expect("Failed to parse config");
+        let oidc = config.http.oidc.unwrap();
+        assert_eq!(oidc.realm, "");
+        assert_eq!(oidc.issuer(), "https://sso.example.com/idp");
     }
 
     #[test]

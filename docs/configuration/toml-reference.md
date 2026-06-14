@@ -106,7 +106,7 @@ max_age = "1h"                        # Preflight cache duration (humantime form
 # =============================================================================
 [http.oidc]
 issuer_url = "https://keycloak.example.com"
-realm = "myrealm"  # Issuer = {issuer_url}/realms/{realm}; set "" to use issuer_url verbatim
+realm = "myrealm"  # Keycloak only: Issuer = {issuer_url}/realms/{realm}. Omit to use issuer_url verbatim (default)
 client_id = "my-service"
 client_secret = "{{ OIDC_CLIENT_SECRET }}"  # Use env var substitution
 audiences = ["my-service", "account"]        # Expected JWT audiences

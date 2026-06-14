@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-06-14
+
+> ⚠️ **Behavior change in a patch release.** This release changes the *default* OIDC issuer
+> derivation. It is source-compatible (nothing fails to compile), but **Keycloak deployments
+> that omitted `realm` will fail OIDC discovery at startup** until they set `realm` explicitly.
+> See the migration note below. The failure is loud and fail-fast (startup error with an
+> actionable hint), never a silent auth change.
+
+### Changed
+- **OIDC config is now provider-agnostic by default.** When `realm` is unset, `issuer_url` is
+  used **verbatim** as the issuer (and discovery base), instead of the previous Keycloak-shaped
+  default of `{issuer_url}/realms/my-app`. This removes a silent footgun: consumers pointing at
+  a non-Keycloak provider (PingFederate, Entra ID, Auth0, a corporate gateway) no longer need to
+  remember `realm = ""` to get a correct issuer.
+
+  **Migration — Keycloak users must now set `realm` explicitly.** Add `realm = "your-realm"` to
+  `[http.oidc]` to keep the `{issuer_url}/realms/{realm}` issuer shape. Consumers who already set
+  `realm` are unaffected; non-Keycloak users can now simply omit it.
+
+### Added
+- **Actionable discovery-failure hint.** When OIDC discovery fails *and* a `realm` is configured,
+  the error now appends `issuer resolved to \`{issuer}\`; if your provider is not Keycloak, unset
+  \`realm\``. This is the exact failure non-Keycloak consumers hit during migration.
+
 ## [0.7.1] - 2026-06-13
 
 ### Added

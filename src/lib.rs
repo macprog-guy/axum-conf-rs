@@ -52,7 +52,7 @@
 //! |---------|-------------|---------|
 //! | Health probes | `/live` and `/ready` endpoints | Enabled |
 //! | Readiness hook | App-supplied `/ready` checks via [`FluentRouter::with_readiness_check`] | Available |
-//! | Prometheus metrics | Request counts, latencies at `/metrics` | Enabled |
+//! | Prometheus metrics | Request counts, latencies at `/metrics`; optional per-metric histogram buckets, global labels, and idle/upkeep timeouts | Enabled |
 //! | Request logging | Structured logs with UUIDv7 correlation IDs | Enabled |
 //! | Rate limiting | Per-IP request throttling | 100 req/sec |
 //! | Security headers | X-Frame-Options, X-Content-Type-Options | Enabled |
@@ -291,8 +291,8 @@ pub use config::{
     AllRoles, AnyRole, ApplicationRole, ApplicationRoles, AuthMethod, AuthenticatedIdentity, Byte,
     Config, CorsHeader, CorsMethod, HttpConfig, HttpCorsConfig, HttpDeduplicationConfig,
     HttpMiddleware, HttpMiddlewareConfig, HttpProxyOidcConfig, HttpXFrameConfig, LogFormat,
-    LoggingConfig, SharedIdentity, StaticDirConfig, StaticDirRoute, TracingBase, WithRole,
-    XFrameOptions,
+    LoggingConfig, MetricBucketsConfig, MetricMatch, SharedIdentity, StaticDirConfig, StaticDirRoute,
+    TracingBase, WithRole, XFrameOptions,
 };
 #[cfg(feature = "basic-auth")]
 pub use config::{BasicAuthApiKey, BasicAuthMode, BasicAuthUser, HttpBasicAuthConfig};

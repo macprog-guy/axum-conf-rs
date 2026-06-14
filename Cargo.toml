@@ -1,6 +1,6 @@
 [package]
 name = "axum-conf"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2024"
 authors = ["Eric Methot <em@ericmethot.com>"]
 description = "A library to simplify the use of Axum, Tokio and Postgres together using configuration. It comes with batteries included and many features can be feature activated."
@@ -67,6 +67,12 @@ tower-http = { version = "0.6", features = ["trace", "timeout", "request-id", "f
 axum-helmet = { version = "1", optional = true }
 helmet-core = { version = "1", optional = true }
 axum-prometheus = { version = "0.10", optional = true }
+# `MetricKindMask` (for `idle_timeout`) is not re-exported by axum-prometheus /
+# metrics-exporter-prometheus, so it is declared directly. `^0.20` unifies with
+# the version metrics-exporter-prometheus pulls in, keeping the type identical.
+# `default-features = false`: the type is ungated, and the exporter already
+# enables the features it needs, so we add no extra (e.g. radix_trie) crates.
+metrics-util = { version = "0.20", optional = true, default-features = false }
 tower_governor = { version = "0.8", optional = true }
 dashmap = { version = "6.1.0", optional = true }
 
@@ -109,6 +115,10 @@ sha2 = { version = "0.10", optional = true }
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports", "async_tokio"] }
 keycloak = "26.5"
+# Used by the `custom_histogram` example and `metrics_buckets_tests` to record a
+# `metrics::histogram!`. Unifies with the `metrics` facade axum-prometheus pulls
+# in, so recordings reach the recorder axum-conf installs.
+metrics = "0.24"
 # `test-util` (not in tokio's `full`) enables `#[tokio::test(start_paused = true)]`
 # for deterministic virtual-time tests.
 tokio = { version = "1.50", features = ["test-util"] }
@@ -143,6 +153,11 @@ path = "examples/json_api.rs"
 name = "with_middleware"
 path = "examples/with_middleware.rs"
 required-features = ["cors", "compression", "rate-limiting"]
+
+[[example]]
+name = "custom_histogram"
+path = "examples/custom_histogram.rs"
+required-features = ["metrics"]
 
 [features]
 default = []
@@ -201,7 +216,7 @@ basic-auth = ["dep:base64"]
 openapi = ["dep:utoipa", "dep:utoipa-scalar", "dep:serde_json"]
 
 # New middleware features - High Impact
-metrics = ["dep:axum-prometheus"]
+metrics = ["dep:axum-prometheus", "dep:metrics-util"]
 rate-limiting = ["dep:tower_governor"]
 security-headers = ["dep:axum-helmet", "dep:helmet-core"]
 deduplication = ["dep:dashmap"]

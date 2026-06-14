@@ -5,6 +5,7 @@ mod circuit_breaker;
 mod cors;
 mod dedup;
 mod identity;
+mod metrics;
 mod middleware;
 #[cfg(feature = "keycloak")]
 mod oidc;
@@ -19,6 +20,7 @@ pub use circuit_breaker::{CircuitBreakerConfig, CircuitBreakerTargetConfig};
 pub use cors::{CorsHeader, CorsMethod, HttpCorsConfig};
 pub use dedup::HttpDeduplicationConfig;
 pub use identity::{AuthMethod, AuthenticatedIdentity, SharedIdentity};
+pub use metrics::{MetricBucketsConfig, MetricMatch};
 pub use middleware::{HttpMiddleware, HttpMiddlewareConfig};
 #[cfg(feature = "keycloak")]
 pub use oidc::HttpOidcConfig;
@@ -301,6 +303,31 @@ pub struct HttpConfig {
     /// CORS configuration. If not present defaults to permissive CORS.
     pub cors: Option<HttpCorsConfig>,
 
+    /// Per-metric Prometheus histogram bucket overrides. Each entry turns a
+    /// metric recorded through the global `metrics` facade into a true bucketed
+    /// histogram (`_bucket{le=…}`) instead of the default summary rendering.
+    /// Empty (the default) ⇒ no change vs. the built-in metrics behavior.
+    #[serde(default)]
+    pub metrics_buckets: Vec<MetricBucketsConfig>,
+
+    /// Global constant labels added to every exported Prometheus series.
+    /// Empty (the default) ⇒ no extra labels. Useful for tagging all series with
+    /// e.g. `service = "my-app"`.
+    #[serde(default)]
+    pub metrics_global_labels: std::collections::BTreeMap<String, String>,
+
+    /// Evict metrics that have not been updated within this duration (across all
+    /// metric kinds). `None` (the default) disables idle eviction, matching the
+    /// built-in behavior. Accepts human-readable durations (e.g. `"5m"`).
+    #[serde(default, with = "humantime_serde")]
+    pub metrics_idle_timeout: Option<Duration>,
+
+    /// Interval of the background upkeep loop that drives idle eviction / state
+    /// maintenance for the Prometheus recorder. `None` (the default) uses the
+    /// built-in 5-second interval. Accepts human-readable durations (e.g. `"10s"`).
+    #[serde(default, with = "humantime_serde")]
+    pub metrics_upkeep_timeout: Option<Duration>,
+
     /// Default API version to use when clients don't specify one.
     /// Used by the API versioning middleware. Defaults to 1.
     #[serde(default = "HttpConfig::default_api_version")]
@@ -562,6 +589,25 @@ impl HttpConfig {
             );
         }
 
+        // Warn (non-fatal) about metrics bucket lists that the recorder will
+        // ignore or that would render incorrectly. An empty list is skipped at
+        // setup time; non-ascending `le` bounds produce a malformed histogram.
+        for entry in &self.metrics_buckets {
+            if entry.buckets.is_empty() {
+                tracing::warn!(
+                    metric = %entry.metric,
+                    "[[http.metrics_buckets]] entry has an empty bucket list; it will be \
+                     ignored and the metric keeps its default rendering."
+                );
+            } else if entry.buckets.windows(2).any(|w| w[1] <= w[0]) {
+                tracing::warn!(
+                    metric = %entry.metric,
+                    "[[http.metrics_buckets]] buckets are not strictly ascending; Prometheus \
+                     histogram `le` upper bounds must increase monotonically."
+                );
+            }
+        }
+
         Ok(())
     }
 }
@@ -602,6 +648,10 @@ impl Default for HttpConfig {
             basic_auth: None,
             proxy_oidc: None,
             cors: None,
+            metrics_buckets: Vec::new(),
+            metrics_global_labels: std::collections::BTreeMap::new(),
+            metrics_idle_timeout: None,
+            metrics_upkeep_timeout: None,
             deduplication: None,
             shutdown_timeout: Self::default_shutdown_timeout(),
             middleware: None,

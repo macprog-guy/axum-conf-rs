@@ -72,8 +72,8 @@ pub use http::HttpOidcConfig;
 pub use http::{
     AllRoles, AnyRole, ApplicationRole, ApplicationRoles, AuthMethod, AuthenticatedIdentity,
     CorsHeader, CorsMethod, HttpConfig, HttpCorsConfig, HttpDeduplicationConfig, HttpMiddleware,
-    HttpMiddlewareConfig, HttpProxyOidcConfig, HttpXFrameConfig, SharedIdentity, StaticDirConfig,
-    StaticDirRoute, WithRole, XFrameOptions,
+    HttpMiddlewareConfig, HttpProxyOidcConfig, HttpXFrameConfig, MetricBucketsConfig, MetricMatch,
+    SharedIdentity, StaticDirConfig, StaticDirRoute, WithRole, XFrameOptions,
 };
 #[cfg(feature = "basic-auth")]
 pub use http::{BasicAuthApiKey, BasicAuthMode, BasicAuthUser, HttpBasicAuthConfig};
@@ -385,6 +385,74 @@ where
     #[must_use]
     pub fn with_metrics_route(mut self, route: &str) -> Self {
         self.http.metrics_route = route.into();
+        self
+    }
+
+    /// Adds a per-metric Prometheus histogram bucket override (exact-name match).
+    ///
+    /// Turns a metric recorded via the global `metrics` facade into a true
+    /// bucketed histogram (`_bucket{le=…}`) instead of the default summary.
+    /// `metric` is the **raw** recorded name (facade metrics are not
+    /// `axum_conf_`-prefixed). `buckets` are ascending `le` upper bounds.
+    #[must_use]
+    pub fn with_metric_buckets(
+        mut self,
+        metric: impl Into<String>,
+        buckets: impl Into<Vec<f64>>,
+    ) -> Self {
+        self.http.metrics_buckets.push(MetricBucketsConfig {
+            metric: metric.into(),
+            r#match: MetricMatch::Full,
+            buckets: buckets.into(),
+        });
+        self
+    }
+
+    /// Adds a per-metric histogram bucket override with an explicit match mode
+    /// ([`MetricMatch::Full`], [`Prefix`], or [`Suffix`]).
+    ///
+    /// [`Prefix`]: MetricMatch::Prefix
+    /// [`Suffix`]: MetricMatch::Suffix
+    #[must_use]
+    pub fn with_metric_buckets_matched(
+        mut self,
+        metric: impl Into<String>,
+        r#match: MetricMatch,
+        buckets: impl Into<Vec<f64>>,
+    ) -> Self {
+        self.http.metrics_buckets.push(MetricBucketsConfig {
+            metric: metric.into(),
+            r#match,
+            buckets: buckets.into(),
+        });
+        self
+    }
+
+    /// Adds a global constant label applied to every exported Prometheus series.
+    #[must_use]
+    pub fn with_metrics_global_label(
+        mut self,
+        key: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Self {
+        self.http
+            .metrics_global_labels
+            .insert(key.into(), value.into());
+        self
+    }
+
+    /// Evicts metrics not updated within `timeout`. Disabled by default.
+    #[must_use]
+    pub fn with_metrics_idle_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.http.metrics_idle_timeout = Some(timeout);
+        self
+    }
+
+    /// Sets the interval of the recorder's background upkeep loop.
+    /// Defaults to 5 seconds when unset.
+    #[must_use]
+    pub fn with_metrics_upkeep_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.http.metrics_upkeep_timeout = Some(timeout);
         self
     }
 

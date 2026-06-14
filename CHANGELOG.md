@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-06-13
+
+### Added
+- **Configurable Prometheus metrics recorder via `[http]` config** — all opt-in, with **no behavior
+  change when unset** (`/metrics` output is byte-for-byte identical to 0.7.0 by default):
+  - `[[http.metrics_buckets]]` (`metric`, optional `match` = `full`/`prefix`/`suffix`, `buckets`):
+    per-metric histogram bucket overrides. Turns a metric recorded through the global `metrics`
+    facade into a true bucketed **histogram** (`_bucket{le=…}`) instead of the default **summary**
+    (`{quantile=…}`), so it can be aggregated across replicas. Metric names are the **raw** recorded
+    names (facade metrics are not `axum_conf_`-prefixed).
+  - `[http.metrics_global_labels]`: global constant labels added to every exported series.
+  - `metrics_idle_timeout` / `metrics_upkeep_timeout`: idle-metric eviction and upkeep-loop interval.
+  - Matching builder setters: `Config::with_metric_buckets`, `with_metric_buckets_matched`,
+    `with_metrics_global_label`, `with_metrics_idle_timeout`, `with_metrics_upkeep_timeout`; new public
+    types `MetricBucketsConfig` and `MetricMatch`.
+  - New `custom_histogram` example.
+
 ## [0.7.0] - 2026-06-13
 
 ### Changed

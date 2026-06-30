@@ -267,6 +267,21 @@
 // so a forgotten re-export can't silently ship — mark genuinely-internal items
 // `pub(crate)` instead.
 #![deny(unreachable_pub)]
+
+// tower-http major-version selection. At least one selector feature must be active.
+// 0.7 takes precedence when both are enabled (e.g. under `--all-features`, which the
+// test suite and docs.rs use), so that path is the unambiguous default. When only
+// `tower-http-06` is chosen the dependency — renamed via the Cargo key `tower-http-06`
+// to the crate `tower_http_06` — is aliased back to `tower_http` here, so every call
+// site keeps using `tower_http::...` paths unchanged. `extern crate ... as tower_http`
+// adds the alias to the extern prelude, making it visible crate-wide.
+#[cfg(not(any(feature = "tower-http-06", feature = "tower-http-07")))]
+compile_error!(
+    "a tower-http version must be selected: enable `tower-http-07` (the default) or `tower-http-06`"
+);
+#[cfg(all(feature = "tower-http-06", not(feature = "tower-http-07")))]
+extern crate tower_http_06 as tower_http;
+
 pub mod config;
 mod error;
 pub mod fluent;

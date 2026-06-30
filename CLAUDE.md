@@ -77,7 +77,22 @@ The library uses feature flags to enable optional functionality:
 - `full` - All features enabled
 - `production` - metrics, rate-limiting, security-headers, compression, cors
 
-Default features are disabled. Most tests require `--all-features`.
+### Dependency Version Selection
+- `tower-http-07` - Build against tower-http **0.7** (the default; included in `default`)
+- `tower-http-06` - Build against tower-http **0.6** instead, for downstreams that need
+  to unify with other 0.6-pinned crates
+
+At least one tower-http selector must be enabled (a `compile_error!` in `src/lib.rs`
+enforces this); **0.7 takes precedence when both are on**, so `--all-features` (used by
+`make test` and docs.rs) resolves to 0.7. To use 0.6: disable default features and select it
+*without* 0.7, e.g. `--no-default-features --features tower-http-06,production`. The 0.6 dependency is renamed
+(Cargo key `tower-http-06`) and aliased back to `tower_http` via `extern crate ... as
+tower_http` in `src/lib.rs`, so call sites use `tower_http::...` paths regardless of version.
+Middleware features (`compression`, `cors`, `path-normalization`, `sensitive-headers`,
+`payload-limit`) use weak (`?`) references to enable sub-features on whichever major is active.
+
+The only non-empty default feature is `tower-http-07`; all other middleware/feature flags
+are off by default. Most tests require `--all-features`.
 
 ## Architecture
 

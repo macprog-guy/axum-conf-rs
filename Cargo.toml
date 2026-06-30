@@ -1,6 +1,6 @@
 [package]
 name = "axum-conf"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2024"
 authors = ["Eric Methot <em@ericmethot.com>"]
 description = "A library to simplify the use of Axum, Tokio and Postgres together using configuration. It comes with batteries included and many features can be feature activated."
@@ -59,9 +59,16 @@ url = "2.5"
 uuid = { version = "1", features = ["v7", "serde"] }
 zeroize = { version = "1.8", features = ["derive"] }
 
-# tower-http base features (always needed for catch-panic, trace, timeout, request-id, fs)
+# tower-http base features (always needed for catch-panic, trace, timeout, request-id, fs).
+# Two semver-incompatible majors are offered so downstreams can pick the one that
+# unifies with the rest of their tree: the `tower-http-07` feature (default) selects
+# 0.7, `tower-http-06` selects 0.6. Both are optional; exactly one must be enabled
+# (enforced by a `compile_error!` in src/lib.rs). The 0.6 build is renamed and
+# aliased back to `tower_http` via `extern crate ... as tower_http`, so all call
+# sites use the same paths regardless of which version is active.
 tower = "0.5"
-tower-http = { version = "0.7", features = ["trace", "timeout", "request-id", "fs", "catch-panic", "set-header"] }
+tower-http = { version = "0.7", features = ["trace", "timeout", "request-id", "fs", "catch-panic", "set-header"], optional = true }
+tower-http-06 = { package = "tower-http", version = "0.6", features = ["trace", "timeout", "request-id", "fs", "catch-panic", "set-header"], optional = true }
 
 # Feature-gated dependencies - High Impact
 axum-helmet = { version = "1", optional = true }
@@ -167,7 +174,13 @@ path = "examples/custom_histogram.rs"
 required-features = ["metrics"]
 
 [features]
-default = []
+default = ["tower-http-07"]
+
+# tower-http major-version selector. Exactly one must be enabled; `tower-http-07`
+# is the default. Disable default features and pick `tower-http-06` to build
+# against tower-http 0.6 instead (e.g. to unify with other 0.6-pinned crates).
+tower-http-07 = ["dep:tower-http"]
+tower-http-06 = ["dep:tower-http-06"]
 
 # Full feature set for backwards compatibility
 full = [
@@ -230,15 +243,24 @@ deduplication = ["dep:dashmap"]
 circuit-breaker = ["dep:dashmap"]
 
 # New middleware features - Medium Impact
-compression = ["tower-http/compression-full", "tower-http/decompression-full"]
-cors = ["tower-http/cors"]
+# These enable extra tower-http sub-features on whichever major is active. The `?`
+# (weak) references only turn on a sub-feature when that version's dependency is
+# already enabled by the `tower-http-07` / `tower-http-06` selector, so requesting
+# e.g. `compression` never silently pulls in the version you didn't choose.
+compression = [
+    "tower-http?/compression-full",
+    "tower-http?/decompression-full",
+    "tower-http-06?/compression-full",
+    "tower-http-06?/decompression-full",
+]
+cors = ["tower-http?/cors", "tower-http-06?/cors"]
 api-versioning = []
 
 # New middleware features - Low Impact
 concurrency-limit = ["tower/limit"]
-path-normalization = ["tower-http/normalize-path"]
-sensitive-headers = ["tower-http/sensitive-headers"]
-payload-limit = ["tower-http/limit"]
+path-normalization = ["tower-http?/normalize-path", "tower-http-06?/normalize-path"]
+sensitive-headers = ["tower-http?/sensitive-headers", "tower-http-06?/sensitive-headers"]
+payload-limit = ["tower-http?/limit", "tower-http-06?/limit"]
 
 # Session store backends (each implies `session`).
 session-postgres = ["session", "postgres", "dep:async-trait", "dep:rmp-serde", "dep:hmac", "dep:sha2"]

@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-06-30
+
+> ⚠️ **Dependency refresh with public-API impact.** This release upgrades several dependencies,
+> some of which appear in axum-conf's public surface (e.g. `db_pool()` returns
+> `sqlx_postgres::PgPool`, and `sqlx::Error` is re-exposed via `From`). Downstream code that uses
+> these types must upgrade in lockstep. No axum-conf source API was renamed or removed; the break is
+> purely the bumped transitive types. Hence the minor version bump under pre-1.0 SemVer.
+
+### Changed
+- **Dependencies updated to their latest releases**, with the full feature matrix re-verified
+  (`build` / `clippy -D warnings` / 539 lib tests, all green) for `default`, `production`, and
+  `--all-features`:
+  - **`sqlx` / `sqlx-postgres` 0.8 → 0.9** *(breaking for consumers using the Postgres pool or
+    `sqlx::Error`)*. No axum-conf code change required.
+  - **`tower-http` 0.6 → 0.7** (middleware stack; no code change required).
+  - **`opentelemetry` / `opentelemetry-otlp` / `opentelemetry_sdk` 0.31 → 0.32** and
+    **`tracing-opentelemetry` 0.32 → 0.33** (OTLP trace pipeline; no code change required).
+  - **`toml` 0.9 → 1.1** (config parsing; no code change required).
+  - **`hmac` 0.12 → 0.13** and **`sha2` 0.10 → 0.11** (session-record HMAC tagging). The only source
+    change in this release: `KeyInit` (which now provides `new_from_slice`) is imported explicitly in
+    `session_store.rs`, per the digest 0.11 trait split.
+  - Semver-compatible bumps picked up via `cargo update`: `axum` 0.8.9, `tokio` 1.52, `rustls`
+    0.23.41, `uuid` 1.23, `zeroize` 1.9, `jsonwebtoken` 10.4, `utoipa` 5.5, `dashmap` 6.2,
+    `axum-helmet` 1.0.2, `keycloak` 26.6 (dev), `testcontainers` 0.27.3 (dev), and others.
+
+- **`reqwest-system-roots` intentionally held at 0.12.** `openidconnect` 4.0 → `oauth2` 5.0 still
+  depend on reqwest 0.12, so 0.12 is the only version that feature-unifies with the actual OIDC/JWKS
+  client. Bumping to 0.13 would attach native-root trust to an unrelated reqwest 0.13 build and
+  silently strip system-CA trust from OIDC TLS (the behavior added in 0.7.0). Revisit when
+  openidconnect/oauth2 adopt reqwest 0.13.
+
 ## [0.7.2] - 2026-06-14
 
 > ⚠️ **Behavior change in a patch release.** This release changes the *default* OIDC issuer

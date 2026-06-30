@@ -19,7 +19,7 @@ pub(crate) use postgres::PostgresSessionStore;
 #[cfg(feature = "session-redis")]
 pub(crate) use redis::RedisSessionStore;
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 
 type HmacSha256 = Hmac<Sha256>;

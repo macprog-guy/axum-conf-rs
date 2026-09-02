@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] - 2026-09-02
+
+### Added
+- **Per-route authentication: secure `/metrics` (or any route group) with its own Basic Auth
+  credential, independent of the app's main auth.** New `FluentRouter::secure_with_basic_auth()`
+  builder method wraps a caller-supplied set of routes in their own independent Basic Auth
+  `route_layer`, merged into the router — so a route group can require Basic Auth even while the
+  rest of the app enforces OIDC bearer tokens exclusively, with no credential leakage in either
+  direction (an OIDC token doesn't satisfy the secured group, and its credentials don't satisfy
+  OIDC-protected routes). New `[http.metrics_basic_auth]` config field wires the built-in
+  `/metrics` endpoint through it automatically; omitting it preserves today's default (`/metrics`
+  registered plainly, unauthenticated). This coexists with bearer-only `[http.oidc]` without
+  requiring auth code flow — `HttpConfig::validate()`'s existing basic-auth/OIDC mutual-exclusion
+  check is unchanged and unaffected. See `docs/design/per-route-authentication.md` for the design
+  rationale and `docs/features/basic-auth.md` for configuration and usage.
+
+### Fixed
+- **Stale "you cannot use both `basic-auth` and `keycloak` features together" claim** in
+  `docs/features/basic-auth.md` — it contradicted `docs/features/keycloak.md`'s already-accurate
+  auth-code-flow coexistence section and predated the per-route scoping mechanism above; replaced
+  with a corrected summary of both coexistence modes.
+
 ## [0.8.0] - 2026-06-30
 
 > ⚠️ **Dependency refresh with public-API impact.** This release upgrades several dependencies,

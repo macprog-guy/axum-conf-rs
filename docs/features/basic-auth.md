@@ -277,12 +277,100 @@ curl -H "X-API-Key: invalid" http://localhost:3000/protected
 
 ## Combining with OIDC
 
-You cannot use both `basic-auth` and `keycloak` features together. Choose one authentication method per service.
+Basic Auth and OIDC (`keycloak` feature) can coexist, in two different ways depending on what
+you need:
 
-If you need both user auth and service auth:
-1. Use OIDC for users
-2. Use client credentials flow in OIDC for services
-3. Or run separate services for different auth needs
+- **App-wide coexistence** — when OIDC's Authorization Code flow is enabled (`redirect_uri` set),
+  Basic Auth and OIDC both cover *every* route, and whichever credential a request carries decides
+  which one handles it (no `Authorization` header at all falls through to OIDC session auth). This
+  is for apps that serve both browser users (OIDC login) and API clients (Basic Auth/API keys) on
+  the same routes. See [Keycloak/OIDC: OIDC + Basic Auth Coexistence](keycloak.md#oidc--basic-auth-coexistence).
+- **Per-route scoping** — a specific route (or group of routes) requires Basic Auth while the rest
+  of the app requires OIDC exclusively, with no credential leakage in either direction. This is
+  what you want to, for example, secure the Prometheus `/metrics` endpoint with a scrape credential
+  while every other route enforces OIDC bearer tokens. See below.
+
+In **bearer-only** OIDC mode (no `redirect_uri`), plain `[http.basic_auth]` and `[http.oidc]`
+remain mutually exclusive app-wide — both compete for the `Authorization` header on every route.
+Per-route scoping (below) is the way around that: `[http.metrics_basic_auth]` (and the general
+`secure_with_basic_auth()` builder method it's built on) is a config field the mutual-exclusion
+check never inspects, so it coexists with bearer-only OIDC without needing auth-code flow at all.
+
+### Securing built-in endpoints with a different method (e.g. `/metrics`)
+
+`FluentRouter::secure_with_basic_auth()` wraps a set of routes in their own, independent Basic
+Auth `route_layer`, merged into the app — separate from whatever `[http.basic_auth]` / `[http.oidc]`
+govern the rest of the application. A route secured this way requires exactly this credential;
+an OIDC bearer token (or the app's own `[http.basic_auth]` credentials, if configured) will not
+satisfy it, and vice versa.
+
+The built-in Prometheus `/metrics` endpoint uses this internally: set `[http.metrics_basic_auth]`
+and it's automatically wired up.
+
+#### Configuration
+
+```toml
+# config/prod.toml
+[http]
+with_metrics = true
+metrics_route = "/metrics"
+
+# App-wide: bearer-only OIDC (no redirect_uri) — every ordinary route requires a valid JWT.
+[http.oidc]
+issuer_url    = "https://sso.example.com/idp"
+client_id     = "my-service"
+client_secret = "{{ OIDC_CLIENT_SECRET }}"
+audiences     = ["my-service"]
+
+# Metrics-only: independent Basic Auth, scoped to /metrics.
+[http.metrics_basic_auth]
+mode = "basic"
+
+[[http.metrics_basic_auth.users]]
+username = "prometheus"
+password = "{{ METRICS_SCRAPE_PASSWORD }}"
+```
+
+Omitting `[http.metrics_basic_auth]` keeps today's default: `/metrics` is registered plainly, not
+wrapped by any auth layer.
+
+#### Using `secure_with_basic_auth` for your own routes
+
+The mechanism is a general-purpose builder method, not a metrics-only special case — use it for
+any route group that needs its own Basic Auth credential, independent of the app's main auth:
+
+```rust,no_run
+use axum::routing::get;
+use axum_conf::{Config, FluentRouter, HttpBasicAuthConfig, Result};
+
+async fn debug_handler() -> &'static str {
+    "debug info"
+}
+
+async fn example(admin_basic_auth: HttpBasicAuthConfig) -> Result<()> {
+    let router = FluentRouter::without_state(Config::<()>::default())?
+        .secure_with_basic_auth(&admin_basic_auth, |r| r.route("/admin/debug", get(debug_handler)))
+        .setup_middleware()
+        .await?; // every other route still goes through the app's own auth config
+    Ok(())
+}
+```
+
+#### Error Responses
+
+```bash
+# No credentials
+curl http://localhost:3000/metrics
+# 401 Unauthorized
+
+# A valid OIDC bearer token does NOT satisfy /metrics's Basic Auth requirement
+curl -H "Authorization: Bearer <valid-jwt>" http://localhost:3000/metrics
+# 401 Unauthorized
+
+# Correct Basic Auth credentials succeed
+curl -u prometheus:scrape-password http://localhost:3000/metrics
+# 200 OK — Prometheus exposition text
+```
 
 ## Next Steps
 

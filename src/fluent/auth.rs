@@ -229,6 +229,58 @@ where
         Ok(self)
     }
 
+    /// Wraps the routes built by `routes` in their own, independent Basic Auth
+    /// `route_layer` and merges them into the router — independent of whatever
+    /// `[http.basic_auth]` / `[http.oidc]` govern the rest of the app.
+    ///
+    /// This lets a subset of routes require Basic Auth while the rest of the
+    /// application uses a different (or no) authentication method — for example,
+    /// securing the Prometheus `/metrics` endpoint with a scrape credential while
+    /// the rest of the app enforces OIDC bearer tokens (see
+    /// [`FluentRouter::setup_metrics`](super::FluentRouter::setup_metrics), which
+    /// uses this method internally when `[http.metrics_basic_auth]` is configured).
+    ///
+    /// Because the sub-router starts empty, its `route_layer` wraps exactly the
+    /// routes the closure adds (`route_layer` only wraps routes already present
+    /// when it's called) — nothing else in the app is affected by this group's
+    /// auth, and this group is unaffected by any other auth layer in the app.
+    /// Credentials are always required here (`passthrough` is not offered) —
+    /// unlike [`setup_basic_auth`](Self::setup_basic_auth)'s app-wide passthrough
+    /// mode, a secured group's auth is never optional or credential-sniffed.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use axum_conf::{Config, FluentRouter, HttpBasicAuthConfig, Result};
+    /// # use axum::routing::get;
+    /// # async fn handler() -> &'static str { "secret" }
+    /// # async fn example(admin_basic_auth: HttpBasicAuthConfig) -> Result<()> {
+    /// let router = FluentRouter::without_state(Config::<()>::default())?
+    ///     .secure_with_basic_auth(&admin_basic_auth, |r| r.route("/admin/debug", get(handler)))
+    ///     .setup_middleware()
+    ///     .await?; // every other route still goes through the app's own auth config
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "basic-auth")]
+    #[must_use]
+    pub fn secure_with_basic_auth<F>(
+        mut self,
+        config: &crate::HttpBasicAuthConfig,
+        routes: F,
+    ) -> Self
+    where
+        F: FnOnce(axum::Router<State>) -> axum::Router<State>,
+    {
+        let sub = routes(axum::Router::new());
+        let auth_config = Arc::new(config.clone());
+        let secured = sub.route_layer(axum::middleware::from_fn(move |request, next| {
+            basic_auth::basic_auth_middleware(Arc::clone(&auth_config), false, request, next)
+        }));
+        self.inner = self.inner.merge(secured);
+        self
+    }
+
     /// Sets up Proxy OIDC authentication.
     ///
     /// When configured, reads identity from HTTP headers set by an authenticating

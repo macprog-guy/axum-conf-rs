@@ -295,6 +295,14 @@ pub struct HttpConfig {
     #[serde(default)]
     pub basic_auth: Option<HttpBasicAuthConfig>,
 
+    /// Basic Auth / API Key credentials that secure ONLY `metrics_route`,
+    /// independent of [`basic_auth`](Self::basic_auth) / [`oidc`](Self::oidc).
+    /// When `None` (the default), `/metrics` keeps today's behavior:
+    /// registered plainly, not wrapped by any auth layer.
+    #[cfg(feature = "basic-auth")]
+    #[serde(default)]
+    pub metrics_basic_auth: Option<HttpBasicAuthConfig>,
+
     /// Proxy OIDC configuration for reverse-proxy-based authentication.
     /// When present, the middleware reads identity from proxy-set HTTP headers.
     #[serde(default)]
@@ -484,6 +492,25 @@ impl HttpConfig {
             basic_auth_config.validate()?;
         }
 
+        // `metrics_basic_auth` is deliberately independent of `basic_auth`/`oidc`: it is
+        // never inspected by the mutual-exclusion checks below, so it coexists with
+        // bearer-only OIDC (or plain Basic Auth) with no special-casing there.
+        #[cfg(feature = "basic-auth")]
+        if let Some(metrics_basic_auth) = &self.metrics_basic_auth {
+            metrics_basic_auth.validate()?;
+            if !cfg!(feature = "metrics") {
+                return Err(crate::Error::invalid_input(
+                    "[http.metrics_basic_auth] is configured but the `metrics` feature is not \
+                     enabled; it has no effect. Add `metrics` to your Cargo.toml features.",
+                ));
+            }
+            if !self.with_metrics {
+                tracing::warn!(
+                    "[http.metrics_basic_auth] is configured but with_metrics is false; it has no effect."
+                );
+            }
+        }
+
         // Mutual exclusion: basic_auth and oidc cannot both be configured in bearer-only mode.
         // When OIDC auth code flow is enabled (redirect_uri set), Basic Auth can coexist
         // to serve API clients alongside browser-based OIDC login.
@@ -646,6 +673,8 @@ impl Default for HttpConfig {
             oidc: None,
             #[cfg(feature = "basic-auth")]
             basic_auth: None,
+            #[cfg(feature = "basic-auth")]
+            metrics_basic_auth: None,
             proxy_oidc: None,
             cors: None,
             metrics_buckets: Vec::new(),
@@ -745,6 +774,68 @@ mod tests {
         // A sufficiently long key → passes.
         config.http.session_signing_key = Some(Sensitive::from("0123456789abcdef0123456789abcdef"));
         assert!(config.http.validate().is_ok(), "valid key should pass");
+    }
+
+    #[cfg(all(feature = "basic-auth", feature = "keycloak"))]
+    fn bearer_only_oidc_config() -> HttpOidcConfig {
+        HttpOidcConfig {
+            issuer_url: "https://idp.example.com".to_string(),
+            client_id: "my-service".to_string(),
+            client_secret: Sensitive::from("secret"),
+            ..Default::default()
+        }
+    }
+
+    #[cfg(all(feature = "basic-auth", feature = "keycloak"))]
+    fn valid_basic_auth_config() -> HttpBasicAuthConfig {
+        HttpBasicAuthConfig {
+            mode: BasicAuthMode::Basic,
+            users: vec![BasicAuthUser {
+                username: "prometheus".to_string(),
+                password: Sensitive::from("scrape-secret"),
+                email: None,
+                groups: Vec::new(),
+                roles: Vec::new(),
+                preferred_username: None,
+            }],
+            ..Default::default()
+        }
+    }
+
+    /// The whole point of `metrics_basic_auth`: it must coexist with bearer-only
+    /// OIDC (no `redirect_uri`) without tripping the mutual-exclusion check below,
+    /// since the two are never both configured under `[http.basic_auth]`/`[http.oidc]`.
+    #[cfg(all(feature = "basic-auth", feature = "keycloak"))]
+    #[test]
+    fn metrics_basic_auth_coexists_with_bearer_only_oidc() {
+        let mut config = Config::<()>::from_toml("").unwrap();
+        config.http.oidc = Some(bearer_only_oidc_config());
+        config.http.basic_auth = None;
+        config.http.metrics_basic_auth = Some(valid_basic_auth_config());
+
+        assert!(
+            config.http.validate().is_ok(),
+            "metrics_basic_auth must coexist with bearer-only oidc: {:?}",
+            config.http.validate()
+        );
+    }
+
+    /// Regression guard: plain `[http.basic_auth]` + bearer-only `[http.oidc]`
+    /// (no `metrics_basic_auth` involved) must still be rejected — this branch
+    /// had no test coverage before `metrics_basic_auth` was introduced.
+    #[cfg(all(feature = "basic-auth", feature = "keycloak"))]
+    #[test]
+    fn basic_auth_and_bearer_only_oidc_still_rejected_without_metrics_scoping() {
+        let mut config = Config::<()>::from_toml("").unwrap();
+        config.http.oidc = Some(bearer_only_oidc_config());
+        config.http.basic_auth = Some(valid_basic_auth_config());
+        config.http.metrics_basic_auth = None;
+
+        let err = config
+            .http
+            .validate()
+            .expect_err("basic_auth + bearer-only oidc must still be rejected");
+        assert!(err.to_string().contains("Cannot configure both"));
     }
 
     #[cfg(feature = "session")]

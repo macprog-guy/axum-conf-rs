@@ -96,8 +96,8 @@ fn build_custom_metrics_recorder(
 ) -> axum_prometheus::metrics_exporter_prometheus::PrometheusHandle {
     use axum_prometheus::metrics_exporter_prometheus::PrometheusBuilder;
 
-    let recorder = configure_metrics_recorder(buckets, global_labels, idle_timeout)
-        .unwrap_or_else(|error| {
+    let recorder =
+        configure_metrics_recorder(buckets, global_labels, idle_timeout).unwrap_or_else(|error| {
             tracing::error!(
                 %error,
                 "failed to configure custom Prometheus metrics; using a plain recorder"
@@ -233,13 +233,26 @@ where
                 builder.with_default_metrics().build_pair()
             };
 
-            self.inner = self
-                .inner
-                .route(
-                    metrics_path,
-                    axum::routing::get(|| async move { metrics_handle.render() }),
-                )
-                .layer(prometheus_layer);
+            let metrics_service = axum::routing::get(|| async move { metrics_handle.render() });
+
+            #[cfg(feature = "basic-auth")]
+            let mut router =
+                if let Some(basic_auth_cfg) = self.config.http.metrics_basic_auth.clone() {
+                    self.secure_with_basic_auth(&basic_auth_cfg, |r| {
+                        r.route(metrics_path, metrics_service)
+                    })
+                } else {
+                    self.inner = self.inner.route(metrics_path, metrics_service);
+                    self
+                };
+            #[cfg(not(feature = "basic-auth"))]
+            let mut router = {
+                self.inner = self.inner.route(metrics_path, metrics_service);
+                self
+            };
+
+            router.inner = router.inner.layer(prometheus_layer);
+            return router;
         }
         self
     }

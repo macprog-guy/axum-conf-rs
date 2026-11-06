@@ -300,8 +300,6 @@ pub mod openapi;
 pub use axum_prometheus::{PrometheusMetricLayer, metrics_exporter_prometheus::PrometheusHandle};
 #[cfg(feature = "postgres")]
 pub use config::DatabaseConfig;
-#[cfg(feature = "keycloak")]
-pub use config::HttpOidcConfig;
 #[cfg(feature = "opentelemetry")]
 pub use config::OpenTelemetryConfig;
 pub use config::{
@@ -311,6 +309,8 @@ pub use config::{
     LoggingConfig, MetricBucketsConfig, MetricMatch, SharedIdentity, StaticDirConfig,
     StaticDirRoute, TracingBase, WithRole, XFrameOptions,
 };
+#[cfg(feature = "keycloak")]
+pub use config::{AuthRoutes, HttpOidcConfig};
 #[cfg(feature = "basic-auth")]
 pub use config::{BasicAuthApiKey, BasicAuthMode, BasicAuthUser, HttpBasicAuthConfig};
 #[cfg(feature = "circuit-breaker")]

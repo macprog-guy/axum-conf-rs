@@ -23,7 +23,7 @@ pub use identity::{AuthMethod, AuthenticatedIdentity, SharedIdentity};
 pub use metrics::{MetricBucketsConfig, MetricMatch};
 pub use middleware::{HttpMiddleware, HttpMiddlewareConfig};
 #[cfg(feature = "keycloak")]
-pub use oidc::HttpOidcConfig;
+pub use oidc::{AuthRoutes, HttpOidcConfig};
 pub use proxy_oidc::HttpProxyOidcConfig;
 pub use role_extractors::{AllRoles, AnyRole, ApplicationRole, ApplicationRoles, WithRole};
 pub use staticdir::{StaticDirConfig, StaticDirRoute};

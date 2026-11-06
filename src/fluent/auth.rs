@@ -145,6 +145,18 @@ where
             let callback_route = oidc_config.callback_route.clone();
             let logout_route = oidc_config.logout_route.clone();
 
+            // Logout accepts POST (CSRF-safe from a form) and, unless disabled, GET.
+            let logout_method_router = if oidc_config.logout_disable_get {
+                axum::routing::post(super::oidc_flow::logout_handler)
+            } else {
+                axum::routing::get(super::oidc_flow::logout_handler)
+                    .post(super::oidc_flow::logout_handler)
+            };
+            let auth_routes = crate::AuthRoutes {
+                login: login_route.clone(),
+                logout: logout_route.clone(),
+            };
+
             self.inner = self
                 .inner
                 .route(
@@ -155,10 +167,8 @@ where
                     &callback_route,
                     axum::routing::get(super::oidc_flow::callback_handler),
                 )
-                .route(
-                    &logout_route,
-                    axum::routing::get(super::oidc_flow::logout_handler),
-                )
+                .route(&logout_route, logout_method_router)
+                .layer(axum::Extension(auth_routes))
                 .layer(axum::Extension(oidc_client));
         }
         Ok(self)

@@ -5,9 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.8.4] - 2026-11-06
 
 ### Added
+- **`AuthRoutes` extractor** exposing the configured OIDC `login` and `logout` paths so UIs can
+  render sign-in links and sign-out forms without hard-coding `/auth/login` / `/auth/logout`.
+  Available when the auth code flow is enabled; `Option<AuthRoutes>` handles the flow being off
+  (the plain extractor responds `404`).
+- **`POST` logout.** The logout route now accepts `POST` as well as `GET`, so sign-out can be a
+  CSRF-safer form submission. New `[http.oidc] logout_disable_get` (default `false`) rejects
+  `GET` (405) once a UI has moved to `POST`.
 - **Optional database readiness check.** New `[http] readiness_check_database` (default `true`)
   and `FluentRouter::with_database_readiness(bool)` (overrides config). When `false`, `/ready`
   skips both `SELECT 1` and the `"database"` circuit-breaker check, so readiness reflects only the

@@ -67,14 +67,14 @@ mod database;
 #[cfg(feature = "postgres")]
 pub use database::DatabaseConfig;
 
-#[cfg(feature = "keycloak")]
-pub use http::HttpOidcConfig;
 pub use http::{
     AllRoles, AnyRole, ApplicationRole, ApplicationRoles, AuthMethod, AuthenticatedIdentity,
     CorsHeader, CorsMethod, HttpConfig, HttpCorsConfig, HttpDeduplicationConfig, HttpMiddleware,
     HttpMiddlewareConfig, HttpProxyOidcConfig, HttpXFrameConfig, MetricBucketsConfig, MetricMatch,
     SharedIdentity, StaticDirConfig, StaticDirRoute, WithRole, XFrameOptions,
 };
+#[cfg(feature = "keycloak")]
+pub use http::{AuthRoutes, HttpOidcConfig};
 #[cfg(feature = "basic-auth")]
 pub use http::{BasicAuthApiKey, BasicAuthMode, BasicAuthUser, HttpBasicAuthConfig};
 #[cfg(feature = "circuit-breaker")]

@@ -89,6 +89,17 @@ format = "json"
 // HTML parsing helper
 // ---------------------------------------------------------------------------
 
+/// Returns the `name=value` pair of the session cookie set by a response, if any.
+fn session_cookie(headers: &reqwest::header::HeaderMap) -> Option<String> {
+    headers
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .filter_map(|v| v.split(';').next())
+        .find(|pair| pair.starts_with("id="))
+        .map(str::to_string)
+}
+
 /// Extracts the form action URL from Keycloak's login page HTML.
 fn extract_form_action(html: &str) -> String {
     // Look for: <form id="kc-form-login" ... action="...">
@@ -219,6 +230,10 @@ async fn test_oidc_auth_code_flow_full() {
         "Login should redirect, got {}",
         resp.status()
     );
+
+    // The pre-login session (holds the CSRF state / PKCE verifier / nonce).
+    let pre_login_cookie = session_cookie(resp.headers())
+        .expect("Login should set a session cookie for the flow state");
 
     let keycloak_auth_url = resp
         .headers()
@@ -352,6 +367,16 @@ async fn test_oidc_auth_code_flow_full() {
         callback_resp.status()
     );
 
+    // Session fixation defence: the callback must rotate the session id, so the
+    // pre-login id (which an attacker could have planted) is never the
+    // authenticated one.
+    let post_login_cookie = session_cookie(callback_resp.headers())
+        .expect("Callback should issue a rotated session cookie");
+    assert_ne!(
+        pre_login_cookie, post_login_cookie,
+        "Session id must be rotated at login"
+    );
+
     let post_login_location = callback_resp
         .headers()
         .get("location")
@@ -385,6 +410,24 @@ async fn test_oidc_auth_code_flow_full() {
     assert!(
         body.contains("email=test-user-mail@foo.bar"),
         "Email should match test user: {body}"
+    );
+
+    // The pre-login session id must not carry the authenticated identity.
+    let fixation_client = reqwest::Client::builder()
+        .redirect(Policy::none())
+        .timeout(Duration::from_secs(30))
+        .build()
+        .unwrap();
+    let resp = fixation_client
+        .get(format!("{base_url}/protected"))
+        .header("cookie", &pre_login_cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        401,
+        "The pre-login session id must not be authenticated"
     );
 
     // Optional endpoint should show authenticated user

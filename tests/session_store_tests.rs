@@ -37,10 +37,53 @@ async fn session_handler(session: Session) -> Result<String, (StatusCode, String
     Ok(format!("Counter: {next}"))
 }
 
+/// Handler that rotates the session id, as the OIDC callback does at login.
+async fn rotate_handler(session: Session) -> Result<&'static str, (StatusCode, String)> {
+    session
+        .cycle_id()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok("rotated")
+}
+
+/// Rotating the session id keeps the data under the new id and deletes the old
+/// record from the store.
+async fn assert_cycle_id_rotates(app: &Router, cookie: &str) {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/rotate")
+                .header(header::COOKIE, cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let new_cookie = response
+        .headers()
+        .get(header::SET_COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.split(';').next().unwrap().to_string())
+        .expect("rotation should issue a new cookie");
+    assert_ne!(cookie, new_cookie, "session id must change");
+
+    let (_, _, body) = counter_request(app, Some(&new_cookie)).await;
+    assert_eq!(body, "Counter: 4", "data must carry over to the new id");
+
+    let (_, _, body) = counter_request(app, Some(cookie)).await;
+    assert_eq!(
+        body, "Counter: 1",
+        "the old id must be invalidated in the store"
+    );
+}
+
 async fn build_app(config: Config) -> Router {
     FluentRouter::without_state(config)
         .expect("Failed to create FluentRouter")
         .route("/counter", get(session_handler))
+        .route("/rotate", get(rotate_handler))
         .setup_middleware()
         .await
         .expect("Failed to set up middleware")
@@ -129,6 +172,8 @@ async fn postgres_session_store_round_trip() {
         body, "Counter: 3",
         "session must persist across router instances sharing the store"
     );
+
+    assert_cycle_id_rotates(&app_b, &cookie).await;
 }
 
 #[cfg(feature = "session-redis")]
@@ -179,4 +224,6 @@ async fn redis_session_store_round_trip() {
         body, "Counter: 3",
         "session must persist across router instances sharing the store"
     );
+
+    assert_cycle_id_rotates(&app_b, &cookie).await;
 }

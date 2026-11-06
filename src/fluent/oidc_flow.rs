@@ -427,6 +427,17 @@ pub(crate) async fn callback_handler(
         }
     }
 
+    // Rotate the session id before any credential is stored. The pre-login
+    // session id was issued to an unauthenticated visitor (and may have been
+    // planted by an attacker), so it must never become the authenticated one
+    // (session fixation, OWASP ASVS 3.2.1). Session data carries over; the old
+    // id is deleted from the store when the response is written. Failing here
+    // aborts the login rather than leaving a fixable session.
+    session
+        .cycle_id()
+        .await
+        .map_err(|e| Error::authentication(format!("Session rotation failed: {e}")))?;
+
     // Store tokens in session
     let _ = session
         .insert(

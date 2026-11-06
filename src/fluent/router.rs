@@ -107,6 +107,8 @@ pub struct FluentRouter<State = ()> {
     /// Optional application-supplied readiness check, composed with the built-in
     /// database/circuit-breaker checks in [`Self::setup_readiness`].
     pub(crate) readiness_check: Option<super::readiness::ReadinessCheck<State>>,
+    /// Builder override for `http.readiness_check_database`; `None` defers to config.
+    pub(crate) readiness_check_database: Option<bool>,
     #[cfg(feature = "postgres")]
     pub(crate) db_pool: sqlx_postgres::PgPool,
     #[cfg(feature = "circuit-breaker")]
@@ -235,6 +237,7 @@ where
             panic_channel: None,
             shutdown_notifier: ShutdownNotifier::default(),
             readiness_check: None,
+            readiness_check_database: None,
             #[cfg(feature = "postgres")]
             db_pool,
             #[cfg(feature = "circuit-breaker")]
@@ -553,6 +556,20 @@ where
         Fut: std::future::Future<Output = super::readiness::Readiness> + Send + 'static,
     {
         self.readiness_check = Some(std::sync::Arc::new(move |state| Box::pin(check(state))));
+        self
+    }
+
+    /// Chooses whether the readiness probe checks the database, overriding
+    /// `http.readiness_check_database` from the configuration.
+    ///
+    /// Pass `false` to make `/ready` skip both the `SELECT 1` and the `"database"`
+    /// circuit-breaker check, so readiness reflects only the application check
+    /// from [`with_readiness_check`](Self::with_readiness_check). The circuit
+    /// breaker keeps protecting real queries. Has no effect without the
+    /// `postgres` feature.
+    #[must_use]
+    pub fn with_database_readiness(mut self, enabled: bool) -> Self {
+        self.readiness_check_database = Some(enabled);
         self
     }
 

@@ -213,6 +213,20 @@ pub struct HttpConfig {
     #[serde(default = "HttpConfig::default_readiness_route")]
     pub readiness_route: String,
 
+    /// Whether the readiness probe checks the database.
+    ///
+    /// When `true` (the default) and the `postgres` feature is enabled, `/ready`
+    /// runs `SELECT 1` against the pool and, with `circuit-breaker`, also fails
+    /// fast while the `"database"` circuit breaker is open. Set to `false` to skip
+    /// both, so readiness reflects only the application check registered with
+    /// [`FluentRouter::with_readiness_check`](crate::FluentRouter::with_readiness_check)
+    /// (or just "the process is up" when none is registered).
+    ///
+    /// This only affects the readiness probe: the `"database"` circuit breaker
+    /// keeps protecting real queries. Has no effect without the `postgres` feature.
+    #[serde(default = "HttpConfig::default_true")]
+    pub readiness_check_database: bool,
+
     /// Route for metrics.
     /// Our Kubernetes infrastructure can scrape this endpoint for
     /// Prometheus metrics. By default `metrics` is set to "/metrics".
@@ -653,6 +667,7 @@ impl Default for HttpConfig {
             request_timeout: Self::default_request_timeout(),
             liveness_route: Self::default_liveness_route(),
             readiness_route: Self::default_readiness_route(),
+            readiness_check_database: Self::default_true(),
             metrics_route: Self::default_metrics_route(),
             x_content_type_nosniff: Self::default_x_content_type_nosniff(),
             x_frame_options: Self::default_x_frame_options(),

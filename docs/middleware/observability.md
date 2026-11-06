@@ -132,6 +132,22 @@ Or via middleware:
 exclude = ["metrics"]
 ```
 
+### Install the Recorder Up Front
+
+`Config::install_metrics()` installs the Prometheus recorder immediately and returns the
+metrics layer and handle, for example to record metrics before the router is built:
+
+```rust
+let (layer, handle) = config.install_metrics().expect("metrics enabled");
+metrics::counter!("startup_total").increment(1);
+```
+
+The recorder is installed once per process. `setup_metrics()` (and so `setup_middleware()`)
+reuses it, and any later call reuses it too. If a later call has different `metrics_buckets`,
+`metrics_global_labels`, `metrics_idle_timeout` or `metrics_upkeep_timeout`, a warning is logged
+and the first call's settings stay in effect. It returns `None` when `with_metrics = false`, and
+must be called from within a Tokio runtime.
+
 ### Kubernetes Scraping
 
 ```yaml

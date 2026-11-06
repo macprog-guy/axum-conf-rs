@@ -46,7 +46,7 @@ pub enum MetricMatch {
 /// match   = "full"   # optional; defaults to "full"
 /// buckets = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
 /// ```
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct MetricBucketsConfig {
     /// Raw recorded metric name (or the prefix/suffix when `match` is set
     /// accordingly). See the type-level note: facade metrics are not prefixed.
@@ -119,8 +119,14 @@ max_payload_size_bytes = "1KiB"
         );
         let config: Config = toml.parse().unwrap();
         assert_eq!(config.http.metrics_buckets.len(), 2);
-        assert_eq!(config.http.metrics_buckets[0].r#match, super::MetricMatch::Prefix);
-        assert_eq!(config.http.metrics_buckets[1].r#match, super::MetricMatch::Suffix);
+        assert_eq!(
+            config.http.metrics_buckets[0].r#match,
+            super::MetricMatch::Prefix
+        );
+        assert_eq!(
+            config.http.metrics_buckets[1].r#match,
+            super::MetricMatch::Suffix
+        );
     }
 
     #[test]
@@ -135,11 +141,19 @@ max_payload_size_bytes = "1KiB"
         );
         let config: Config = toml.parse().unwrap();
         assert_eq!(
-            config.http.metrics_global_labels.get("service").map(String::as_str),
+            config
+                .http
+                .metrics_global_labels
+                .get("service")
+                .map(String::as_str),
             Some("widget")
         );
         assert_eq!(
-            config.http.metrics_global_labels.get("tier").map(String::as_str),
+            config
+                .http
+                .metrics_global_labels
+                .get("tier")
+                .map(String::as_str),
             Some("prod")
         );
         assert_eq!(
@@ -156,9 +170,7 @@ max_payload_size_bytes = "1KiB"
     fn metrics_buckets_empty_list_parses() {
         // An empty bucket list is accepted by deserialization; it is skipped
         // (and logged) at setup time rather than rejected at parse time.
-        let toml = format!(
-            "{BASE}\n[[http.metrics_buckets]]\nmetric = \"empty\"\nbuckets = []\n"
-        );
+        let toml = format!("{BASE}\n[[http.metrics_buckets]]\nmetric = \"empty\"\nbuckets = []\n");
         let config: Config = toml.parse().unwrap();
         assert_eq!(config.http.metrics_buckets.len(), 1);
         assert!(config.http.metrics_buckets[0].buckets.is_empty());

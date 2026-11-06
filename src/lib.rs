@@ -296,6 +296,8 @@ pub mod circuit_breaker;
 #[cfg_attr(docsrs, doc(cfg(feature = "openapi")))]
 pub mod openapi;
 
+#[cfg(feature = "metrics")]
+pub use axum_prometheus::{PrometheusMetricLayer, metrics_exporter_prometheus::PrometheusHandle};
 #[cfg(feature = "postgres")]
 pub use config::DatabaseConfig;
 #[cfg(feature = "keycloak")]
@@ -306,8 +308,8 @@ pub use config::{
     AllRoles, AnyRole, ApplicationRole, ApplicationRoles, AuthMethod, AuthenticatedIdentity, Byte,
     Config, CorsHeader, CorsMethod, HttpConfig, HttpCorsConfig, HttpDeduplicationConfig,
     HttpMiddleware, HttpMiddlewareConfig, HttpProxyOidcConfig, HttpXFrameConfig, LogFormat,
-    LoggingConfig, MetricBucketsConfig, MetricMatch, SharedIdentity, StaticDirConfig, StaticDirRoute,
-    TracingBase, WithRole, XFrameOptions,
+    LoggingConfig, MetricBucketsConfig, MetricMatch, SharedIdentity, StaticDirConfig,
+    StaticDirRoute, TracingBase, WithRole, XFrameOptions,
 };
 #[cfg(feature = "basic-auth")]
 pub use config::{BasicAuthApiKey, BasicAuthMode, BasicAuthUser, HttpBasicAuthConfig};

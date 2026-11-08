@@ -1,6 +1,6 @@
 [package]
 name = "axum-conf"
-version = "0.8.2"
+version = "0.8.3"
 edition = "2024"
 authors = ["Eric Methot <em@ericmethot.com>"]
 description = "A library to simplify the use of Axum, Tokio and Postgres together using configuration. It comes with batteries included and many features can be feature activated."
@@ -8,7 +8,7 @@ keywords = ["axum","postgres","configuration","tokio"]
 categories = ["development-tools","rust-patterns","web-programming"]
 repository = "https://github.com/macprog-guy/axum-conf-rs.git"
 license = "MIT"
-rust-version = "1.92"
+rust-version = "1.94"
 
 # `humantime-serde` is used only through `#[serde(with = "humantime_serde")]`
 # attributes, which cargo-machete cannot see, so it reports a false positive.
@@ -43,21 +43,21 @@ lto = true
 # Core dependencies (always required)
 axum = { version = "0.8", features = ["default", "http2"] }
 byte-unit = { version = "5.2", features = ["serde"] }
-http = "1.4"
+http = "1.5"
 humantime-serde = "1.1"
 # CIDR matching for the trusted-proxy allow-list (proxy-OIDC header gating).
 ipnet = { version = "2", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 subtle = "2.6"
 thiserror = "2.0"
-tokio = { version = "1.50", features = ["full"] }
+tokio = { version = "1.54", features = ["full"] }
 tokio-util = { version = "0.7", features = ["rt"] }
-toml = { version = "1.1", features = ["preserve_order"] }
+toml = { version = "1.2", features = ["preserve_order"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json", "ansi"] }
 url = "2.5"
 uuid = { version = "1", features = ["v7", "serde"] }
-zeroize = { version = "1.8", features = ["derive"] }
+zeroize = { version = "1.9", features = ["derive"] }
 
 # tower-http base features (always needed for catch-panic, trace, timeout, request-id, fs).
 # Two semver-incompatible majors are offered so downstreams can pick the one that
@@ -81,23 +81,23 @@ axum-prometheus = { version = "0.10", optional = true }
 # enables the features it needs, so we add no extra (e.g. radix_trie) crates.
 metrics-util = { version = "0.20", optional = true, default-features = false }
 tower_governor = { version = "0.8", optional = true }
-dashmap = { version = "6.1.0", optional = true }
+dashmap = { version = "6.2.1", optional = true }
 
 # Required for config parsing (handlebars substitution)
-regex = "1.12"
+regex = "1.13"
 
 # Existing optional dependencies
-jsonwebtoken = { version = "10.3", features = ["aws_lc_rs"], optional = true }
+jsonwebtoken = { version = "11.1", features = ["aws_lc_rs"], optional = true }
 rustls = { version = "0.23", features = ["ring"], optional = true }
 sqlx = { version = "0.9", features = ["runtime-tokio", "tls-rustls-ring"], optional = true }
 sqlx-postgres = { version = "0.9", features = ["rust_decimal", "time", "uuid", "json", "offline"], optional = true }
 tower-sessions = { version = "0.15", features = ["axum-core", "memory-store"], optional = true }
-tracing-opentelemetry = { version = "0.33", optional = true }
-opentelemetry = { version = "0.32", optional = true }
-opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic"], optional = true }
-opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"], optional = true }
-base64 = { version = "0.22", optional = true }
-openidconnect = { version = "4.0", default-features = false, features = ["reqwest", "rustls-tls"], optional = true }
+tracing-opentelemetry = { version = "0.34", optional = true }
+opentelemetry = { version = "0.33", optional = true }
+opentelemetry-otlp = { version = "0.33", features = ["grpc-tonic"], optional = true }
+opentelemetry_sdk = { version = "0.33", features = ["rt-tokio"], optional = true }
+base64 = { version = "0.23", optional = true }
+openidconnect = { version = "4.1", default-features = false, features = ["reqwest", "rustls-tls"], optional = true }
 # Feature-unification-only dependency (never imported in code): enables
 # reqwest's `rustls-tls-native-roots` on the same reqwest 0.12 build that
 # openidconnect/oauth2 use, so the OIDC discovery + JWKS client trusts the
@@ -115,8 +115,8 @@ reqwest-system-roots = { package = "reqwest", version = "0.12", default-features
 serde_json = { version = "1.0", optional = true }
 
 # OpenAPI documentation
-utoipa = { version = "5", optional = true }
-utoipa-scalar = { version = "0.3", features = ["axum"], optional = true }
+utoipa = { version = "6", optional = true }
+utoipa-scalar = { version = "0.4", features = ["axum"], optional = true }
 # Session store backends are hand-rolled against tower-sessions 0.15's
 # SessionStore trait (the official store crates pin older, incompatible cores).
 async-trait = { version = "0.1", optional = true }
@@ -128,20 +128,20 @@ sha2 = { version = "0.11", optional = true }
 
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports", "async_tokio"] }
-keycloak = "26.5"
+keycloak = "26.8"
 # Used by the `custom_histogram` example and `metrics_buckets_tests` to record a
 # `metrics::histogram!`. Unifies with the `metrics` facade axum-prometheus pulls
 # in, so recordings reach the recorder axum-conf installs.
 metrics = "0.24"
 # `test-util` (not in tokio's `full`) enables `#[tokio::test(start_paused = true)]`
 # for deterministic virtual-time tests.
-tokio = { version = "1.50", features = ["test-util"] }
-proptest = "1.9.0"
+tokio = { version = "1.54", features = ["test-util"] }
+proptest = "1.12.0"
 reqwest = { version = "0.13", features = ["cookies"] }
 testcontainers = "0.27"
 testcontainers-modules = {version="0.15", features = ["postgres"]}
 tower-sessions = { version = "0.15", features = ["axum-core"] }
-tracing-test = "0.2.5"
+tracing-test = "0.2.6"
 
 [[bench]]
 name = "middleware_overhead"

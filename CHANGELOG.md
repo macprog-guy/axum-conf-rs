@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.3] - 2026-11-06
+
+### Added
+- **`Config::install_metrics()`** installs the Prometheus recorder up front and returns the metrics
+  layer and `/metrics` handle (`PrometheusMetricLayer`, `PrometheusHandle`, both re-exported from
+  the crate root). Returns `None` when `http.with_metrics` is `false`. Requires a Tokio runtime.
+
+### Changed
+- **MSRV raised from 1.92 to 1.94.** sqlx 0.9 (adopted in 0.8.0) requires rustc 1.94, so the
+  declared `rust-version` had been understated since then and the CI MSRV job was failing. No
+  other dependency needs more than 1.92.
+- `setup_metrics()` now reuses the process-wide recorder (stored in a `OnceLock`) instead of
+  installing a new one. Building several routers in one process, or calling `install_metrics()`
+  before `setup_metrics()`, no longer panics or yields an empty `/metrics`. If a later call has
+  different recorder settings (`metrics_buckets`, `metrics_global_labels`, `metrics_idle_timeout`,
+  `metrics_upkeep_timeout`), a warning is logged and the first call's settings stay in effect.
+- Updated dependencies (jsonwebtoken 11, utoipa 6, OpenTelemetry 0.33, base64 0.23, and others).
+
 ## [0.8.2] - 2026-09-02
 
 ### Added

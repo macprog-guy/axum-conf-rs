@@ -128,6 +128,173 @@ fn build_custom_metrics_recorder(
     }
 }
 
+/// The recorder-affecting settings a Prometheus recorder was installed with.
+///
+/// Kept next to the installed handle so a later call with different settings can
+/// be detected and reported (the recorder is fixed at install time).
+#[cfg(feature = "metrics")]
+#[derive(Debug, Clone, PartialEq)]
+struct MetricsRecorderSettings {
+    buckets: Vec<crate::MetricBucketsConfig>,
+    global_labels: std::collections::BTreeMap<String, String>,
+    idle_timeout: Option<std::time::Duration>,
+    upkeep_timeout: Option<std::time::Duration>,
+}
+
+#[cfg(feature = "metrics")]
+impl MetricsRecorderSettings {
+    fn from_config(http: &crate::HttpConfig) -> Self {
+        Self {
+            buckets: http.metrics_buckets.clone(),
+            global_labels: http.metrics_global_labels.clone(),
+            idle_timeout: http.metrics_idle_timeout,
+            upkeep_timeout: http.metrics_upkeep_timeout,
+        }
+    }
+
+    /// `true` when any opt-in customization is set. When nothing is configured the
+    /// byte-for-byte default recorder (identical to releases before 0.7.1) is used.
+    fn is_custom(&self) -> bool {
+        !self.buckets.is_empty()
+            || !self.global_labels.is_empty()
+            || self.idle_timeout.is_some()
+            || self.upkeep_timeout.is_some()
+    }
+}
+
+/// The process-wide Prometheus recorder handle and the settings it was built with.
+///
+/// The `metrics` facade permits a single global recorder per process, so it is
+/// installed at most once and every later request for it gets a clone.
+#[cfg(feature = "metrics")]
+static INSTALLED_METRICS: std::sync::OnceLock<(
+    axum_prometheus::metrics_exporter_prometheus::PrometheusHandle,
+    MetricsRecorderSettings,
+)> = std::sync::OnceLock::new();
+
+/// Returns the `'static` metrics route, allocated at most once per process.
+///
+/// `with_ignore_pattern` borrows the pattern for the layer's `'static` lifetime.
+/// A process-lifetime `OnceLock` avoids `Box::leak` and repeated allocation.
+#[cfg(feature = "metrics")]
+fn metrics_path(http: &crate::HttpConfig) -> &'static str {
+    static METRICS_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    METRICS_PATH
+        .get_or_init(|| http.metrics_route.clone())
+        .as_str()
+}
+
+/// Builds the metrics layer and returns it with the process-wide recorder handle,
+/// installing the recorder on first use and reusing it afterwards.
+#[cfg(feature = "metrics")]
+fn metrics_pair(
+    http: &crate::HttpConfig,
+) -> (
+    axum_prometheus::PrometheusMetricLayer<'static>,
+    axum_prometheus::metrics_exporter_prometheus::PrometheusHandle,
+) {
+    const PACKAGE_NAME: &str = env!("CARGO_PKG_NAME");
+
+    // axum-prometheus panics if the metric-name prefix is set twice, so it is
+    // applied by the first caller only. The lock makes that check-and-set (and the
+    // install below) atomic across threads; a poisoned lock is still usable.
+    static BUILD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    static PREFIX_SET: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let _guard = BUILD_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    let settings = MetricsRecorderSettings::from_config(http);
+    let mut builder = PrometheusMetricLayerBuilder::new()
+        .enable_response_body_size(true)
+        .with_ignore_pattern(metrics_path(http));
+    if !PREFIX_SET.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        builder = builder.with_prefix(PACKAGE_NAME);
+    }
+
+    // `with_metrics_from_fn` invokes the closure SYNCHRONOUSLY, after
+    // `with_prefix` has populated the prefix globals. Installing inside
+    // `get_or_init` makes the install-and-store step race-free.
+    builder
+        .with_metrics_from_fn(|| {
+            let (handle, installed) = INSTALLED_METRICS.get_or_init(|| {
+                let handle = if settings.is_custom() {
+                    build_custom_metrics_recorder(
+                        &settings.buckets,
+                        settings.global_labels.clone(),
+                        settings.idle_timeout,
+                        settings.upkeep_timeout,
+                    )
+                } else {
+                    axum_prometheus::Handle::default().0
+                };
+                (handle, settings.clone())
+            });
+            if *installed != settings {
+                tracing::warn!(
+                    "a Prometheus recorder is already installed with different metrics settings \
+                     (metrics_buckets / metrics_global_labels / metrics_idle_timeout / \
+                     metrics_upkeep_timeout); reusing it and ignoring the new settings"
+                );
+            }
+            handle.clone()
+        })
+        .build_pair()
+}
+
+#[cfg(feature = "metrics")]
+impl<T> crate::Config<T>
+where
+    T: Clone + Default,
+{
+    /// Installs the Prometheus recorder and returns the metrics layer and handle.
+    ///
+    /// This does what [`FluentRouter::setup_metrics`] does internally, but lets you
+    /// do it up front — for example to record metrics before the router exists, or
+    /// to serve `/metrics` yourself. The returned pair is:
+    ///
+    /// - a [`PrometheusMetricLayer`](crate::PrometheusMetricLayer) to add to a router, and
+    /// - a [`PrometheusHandle`](crate::PrometheusHandle) whose `render()` produces the
+    ///   scrape output.
+    ///
+    /// The recorder is installed **once per process** and honours the
+    /// `metrics_buckets`, `metrics_global_labels`, `metrics_idle_timeout` and
+    /// `metrics_upkeep_timeout` settings of the first call. Later calls — including
+    /// the one made by `setup_metrics()` — reuse the installed recorder. If a later
+    /// call has different recorder settings, a warning is logged and the new
+    /// settings are ignored.
+    ///
+    /// Returns `None` when `http.with_metrics` is `false` (nothing is installed).
+    ///
+    /// # Panics
+    ///
+    /// Must be called from within a Tokio runtime: the recorder spawns a periodic
+    /// upkeep task.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use axum_conf::Config;
+    /// # #[tokio::main] async fn main() {
+    /// let mut config = Config::new();
+    /// config.http.with_metrics = true;
+    /// let (layer, handle) = config.install_metrics().expect("metrics enabled");
+    /// metrics::counter!("startup_total").increment(1);
+    /// println!("{}", handle.render());
+    /// # drop(layer);
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn install_metrics(
+        &self,
+    ) -> Option<(
+        axum_prometheus::PrometheusMetricLayer<'static>,
+        axum_prometheus::metrics_exporter_prometheus::PrometheusHandle,
+    )> {
+        self.http.with_metrics.then(|| metrics_pair(&self.http))
+    }
+}
+
 impl<State> FluentRouter<State>
 where
     State: Clone + Send + Sync + 'static,
@@ -191,47 +358,10 @@ where
                 route = %self.config.http.metrics_route,
                 "Metrics middleware enabled"
             );
-            const PACKAGE_NAME: &str = env!("CARGO_PKG_NAME");
-            // `with_ignore_pattern` borrows the pattern for the layer's 'static
-            // lifetime. Use a process-lifetime `OnceLock` instead of `Box::leak`
-            // so repeated calls (e.g. in tests) allocate the path at most once.
-            static METRICS_PATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-            let metrics_path: &'static str = METRICS_PATH
-                .get_or_init(|| self.config.http.metrics_route.clone())
-                .as_str();
-            let builder = PrometheusMetricLayerBuilder::new()
-                .enable_response_body_size(true)
-                .with_prefix(PACKAGE_NAME)
-                .with_ignore_pattern(metrics_path);
-
-            // Opt-in detection: when nothing is configured, take the byte-for-byte
-            // default path so behavior is identical to releases before 0.7.1.
-            let any_custom = !self.config.http.metrics_buckets.is_empty()
-                || !self.config.http.metrics_global_labels.is_empty()
-                || self.config.http.metrics_idle_timeout.is_some()
-                || self.config.http.metrics_upkeep_timeout.is_some();
-
-            let (prometheus_layer, metrics_handle) = if any_custom {
-                // `with_metrics_from_fn` invokes the closure SYNCHRONOUSLY, after
-                // `with_prefix` has populated the prefix globals, so we move the
-                // owned config out of `self` (no clone / `'static` capture needed).
-                let buckets = std::mem::take(&mut self.config.http.metrics_buckets);
-                let global_labels = std::mem::take(&mut self.config.http.metrics_global_labels);
-                let idle_timeout = self.config.http.metrics_idle_timeout;
-                let upkeep_timeout = self.config.http.metrics_upkeep_timeout;
-                builder
-                    .with_metrics_from_fn(move || {
-                        build_custom_metrics_recorder(
-                            &buckets,
-                            global_labels,
-                            idle_timeout,
-                            upkeep_timeout,
-                        )
-                    })
-                    .build_pair()
-            } else {
-                builder.with_default_metrics().build_pair()
-            };
+            let metrics_path = metrics_path(&self.config.http);
+            // Reuses the process-wide recorder if one is already installed (e.g. by
+            // `Config::install_metrics`), otherwise installs it now.
+            let (prometheus_layer, metrics_handle) = metrics_pair(&self.config.http);
 
             let metrics_service = axum::routing::get(|| async move { metrics_handle.render() });
 

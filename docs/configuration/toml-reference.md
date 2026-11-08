@@ -43,6 +43,7 @@ with_metrics = true                   # Enable /metrics endpoint (default: true)
 # Health check routes
 liveness_route = "/live"              # Liveness probe path (default: "/live")
 readiness_route = "/ready"            # Readiness probe path (default: "/ready")
+readiness_check_database = true       # /ready runs SELECT 1 + DB circuit-breaker check (default: true)
 metrics_route = "/metrics"            # Prometheus metrics path (default: "/metrics")
 
 # API versioning

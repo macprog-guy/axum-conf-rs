@@ -230,3 +230,96 @@ async fn readiness_app_check_precedes_built_in_check() {
         "the built-in check should not run once the application reports NotReady"
     );
 }
+
+/// With the database check disabled via the builder, `/ready` returns `200`
+/// without touching the database, even under `postgres` (where the pool is
+/// unreachable in unit tests).
+#[tokio::test]
+async fn readiness_database_check_disabled_returns_ok() {
+    let app = FluentRouter::without_state(Config::new())
+        .unwrap()
+        .with_database_readiness(false)
+        .setup_readiness()
+        .into_inner();
+
+    let response = app.oneshot(ready_request()).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(body_string(response).await, "OK\n");
+}
+
+/// The same switch can be set from configuration.
+#[tokio::test]
+async fn readiness_database_check_disabled_via_config() {
+    let mut config = Config::new();
+    config.http.readiness_check_database = false;
+    let app = FluentRouter::without_state(config)
+        .unwrap()
+        .setup_readiness()
+        .into_inner();
+
+    let response = app.oneshot(ready_request()).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+/// The application check still applies when the database check is disabled.
+#[tokio::test]
+async fn readiness_app_check_still_applies_when_database_disabled() {
+    let app = FluentRouter::without_state(Config::new())
+        .unwrap()
+        .with_database_readiness(false)
+        .with_readiness_check(|_state: ()| async move { Readiness::not_ready("saturated") })
+        .setup_readiness()
+        .into_inner();
+
+    let response = app.oneshot(ready_request()).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert!(body_string(response).await.contains("saturated"));
+}
+
+/// The builder override beats the config value in both directions.
+#[tokio::test]
+async fn readiness_builder_override_beats_config() {
+    // Config says skip, builder says check -> the app check can't mask it, but
+    // with an unreachable DB / open breaker the probe must not be a plain 200.
+    #[cfg(all(feature = "postgres", feature = "circuit-breaker"))]
+    {
+        let mut config = Config::new();
+        config.http.readiness_check_database = false;
+        let router = FluentRouter::without_state(config)
+            .unwrap()
+            .with_database_readiness(true);
+        let breaker = router.circuit_breakers().get_or_default("database");
+        for _ in 0..10 {
+            breaker.record_failure();
+        }
+        let response = router
+            .setup_readiness()
+            .into_inner()
+            .oneshot(ready_request())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    // Config says check, builder says skip -> 200 despite an open breaker.
+    #[cfg(all(feature = "postgres", feature = "circuit-breaker"))]
+    {
+        let router = FluentRouter::without_state(Config::new())
+            .unwrap()
+            .with_database_readiness(false);
+        let breaker = router.circuit_breakers().get_or_default("database");
+        for _ in 0..10 {
+            breaker.record_failure();
+        }
+        let response = router
+            .setup_readiness()
+            .into_inner()
+            .oneshot(ready_request())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+}

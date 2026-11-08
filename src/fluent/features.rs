@@ -744,6 +744,13 @@ where
     /// 503 immediately without attempting a database query, preventing additional
     /// load on a failing database.
     ///
+    /// # Skipping the Database Check
+    ///
+    /// Set `readiness_check_database = false` in `[http]` (or call
+    /// [`with_database_readiness(false)`](Self::with_database_readiness)) to make
+    /// `/ready` skip `SELECT 1` and the `"database"` circuit-breaker check. The
+    /// breaker keeps guarding real queries; only the probe ignores it.
+    ///
     /// # Application Readiness Hook
     ///
     /// An application can make `/ready` reflect its own state — not just database
@@ -795,6 +802,13 @@ where
         #[cfg(feature = "postgres")]
         let db_pool = self.db_pool.clone();
 
+        // Builder override wins over config. When false, both the circuit-breaker
+        // peek and `SELECT 1` are skipped (the breaker still guards real queries).
+        #[cfg(feature = "postgres")]
+        let check_database = self
+            .readiness_check_database
+            .unwrap_or(self.config.http.readiness_check_database);
+
         #[cfg(all(feature = "circuit-breaker", feature = "postgres"))]
         let circuit_breaker_registry = self.circuit_breaker_registry.clone();
 
@@ -817,6 +831,7 @@ where
                     //    check circuit state before querying.
                     #[cfg(all(feature = "circuit-breaker", feature = "postgres"))]
                     {
+                        if check_database {
                         let breaker = circuit_breaker_registry.get_or_default("database");
                         // Side-effect-free peek: a readiness probe must not
                         // transition the breaker or consume a half-open probe slot
@@ -833,11 +848,14 @@ where
                             return (StatusCode::SERVICE_UNAVAILABLE, "Database circuit open\n")
                                 .into_response();
                         }
+                        }
                     }
 
                     // 3. Database connectivity check.
                     #[cfg(feature = "postgres")]
-                    if let Err(e) = sqlx::query("SELECT 1").execute(&db_pool).await {
+                    if check_database
+                        && let Err(e) = sqlx::query("SELECT 1").execute(&db_pool).await
+                    {
                         tracing::error!("Database health check failed: {}", e);
                         return (StatusCode::SERVICE_UNAVAILABLE, "Database unavailable\n")
                             .into_response();

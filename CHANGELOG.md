@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Optional database readiness check.** New `[http] readiness_check_database` (default `true`)
+  and `FluentRouter::with_database_readiness(bool)` (overrides config). When `false`, `/ready`
+  skips both `SELECT 1` and the `"database"` circuit-breaker check, so readiness reflects only the
+  application check from `with_readiness_check` (or just "process is up" when none is set). The
+  circuit breaker keeps protecting real queries.
+
 ## [0.8.3] - 2026-11-06
 
 ### Added

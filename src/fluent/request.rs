@@ -248,6 +248,8 @@ where
         }
 
         // Authorization and cookies are credentials; redact them from logs/traces.
+        // `mut` is only needed when `basic-auth` adds the API-key header below.
+        #[cfg_attr(not(feature = "basic-auth"), allow(unused_mut))]
         let mut headers = vec![AUTHORIZATION, COOKIE, SET_COOKIE];
 
         // Also redact the configured API-key header, which is a bearer credential.

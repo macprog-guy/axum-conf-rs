@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the crate root). Returns `None` when `http.with_metrics` is `false`. Requires a Tokio runtime.
 
 ### Changed
+- **MSRV raised from 1.92 to 1.94.** sqlx 0.9 (adopted in 0.8.0) requires rustc 1.94, so the
+  declared `rust-version` had been understated since then and the CI MSRV job was failing. No
+  other dependency needs more than 1.92.
 - `setup_metrics()` now reuses the process-wide recorder (stored in a `OnceLock`) instead of
   installing a new one. Building several routers in one process, or calling `install_metrics()`
   before `setup_metrics()`, no longer panics or yields an empty `/metrics`. If a later call has

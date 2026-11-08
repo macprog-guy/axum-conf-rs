@@ -16,11 +16,11 @@ env:
 
 jobs:
   msrv:
-    name: Check MSRV (1.92)
+    name: Check MSRV (1.94)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.92
+      - uses: dtolnay/rust-toolchain@1.94
       - uses: Swatinem/rust-cache@v2
       - name: Check compilation
         run: cargo check --all-features
@@ -82,18 +82,21 @@ jobs:
           tool: cargo-hack
       # Checks the crate with each feature individually (plus none/all), catching
       # feature-gating bugs that the all-features and default builds miss.
+      # A tower-http selector is mandatory (`compile_error!` in src/lib.rs), so the
+      # default `tower-http-07` is kept on in every run; the 0.6 path is covered by
+      # the powerset below and the 0.6 lint in the Lint job.
       - name: Check each feature
-        run: cargo hack check --each-feature --no-dev-deps
+        run: cargo hack check --each-feature --no-dev-deps --features tower-http-07
       # Lint each feature in isolation so `-Dwarnings` covers per-feature cfg paths,
       # not just the all-features build.
       - name: Clippy each feature
-        run: cargo hack clippy --each-feature --no-dev-deps -- -D warnings
+        run: cargo hack clippy --each-feature --no-dev-deps --features tower-http-07 -- -D warnings
       # Bounded pairwise check: catches cfg bugs that only manifest when two
       # features combine (e.g. keycloak+basic-auth, session-postgres+session-redis).
       # `full`/`production` are excluded because they enable everything, making the
       # powerset redundant and explosive.
       - name: Check feature pairs
-        run: cargo hack check --feature-powerset --depth 2 --no-dev-deps --exclude-features full,production
+        run: cargo hack check --feature-powerset --depth 2 --no-dev-deps --exclude-features full,production --at-least-one-of tower-http-07,tower-http-06
 
   machete:
     needs: msrv
@@ -124,10 +127,11 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Run Clippy (all features)
         run: cargo clippy --all-targets --all-features -- -D warnings
-      # `default = []`, so the all-features run never lints the default/no-feature
-      # code paths. Lint them explicitly so `-Dwarnings` covers every cfg path.
-      - name: Run Clippy (no default features)
-        run: cargo clippy --all-targets --no-default-features -- -D warnings
+      # The all-features run never lints the minimal code paths. A tower-http
+      # selector is mandatory (`compile_error!` otherwise), so lint the minimal
+      # build on the non-default tower-http 0.6, which `--all-features` also skips.
+      - name: Run Clippy (no default features, tower-http 0.6)
+        run: cargo clippy --all-targets --no-default-features --features tower-http-06 -- -D warnings
 
   deny:
     needs: msrv

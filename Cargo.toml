@@ -8,7 +8,7 @@ keywords = ["axum","postgres","configuration","tokio"]
 categories = ["development-tools","rust-patterns","web-programming"]
 repository = "https://github.com/macprog-guy/axum-conf-rs.git"
 license = "MIT"
-rust-version = "1.92"
+rust-version = "1.94"
 
 # `humantime-serde` is used only through `#[serde(with = "humantime_serde")]`
 # attributes, which cargo-machete cannot see, so it reports a false positive.

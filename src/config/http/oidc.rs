@@ -151,6 +151,15 @@ pub struct HttpOidcConfig {
     #[serde(default = "HttpOidcConfig::default_logout_route")]
     pub logout_route: String,
 
+    /// Reject `GET` on the logout route, leaving only `POST`. Defaults to `false`
+    /// (both methods are accepted).
+    ///
+    /// A `GET` logout can be triggered cross-site (for example by an `<img>` tag),
+    /// forcing a sign-out. Set this to `true` once your UI signs out with a form
+    /// `POST` to the route exposed by [`AuthRoutes`].
+    #[serde(default)]
+    pub logout_disable_get: bool,
+
     /// Auto-redirect unauthenticated browser requests to the login route.
     /// Only effective when auth code flow is enabled (`redirect_uri` is set).
     /// Defaults to `false`.
@@ -162,6 +171,60 @@ pub struct HttpOidcConfig {
     /// Defaults to `"applicationRoles"`.
     #[serde(default = "HttpOidcConfig::default_roles_claim")]
     pub roles_claim: String,
+}
+
+/// The OIDC login and logout routes, for building links and forms in a UI.
+///
+/// Inserted into request extensions when the auth code flow is enabled
+/// (`redirect_uri` set), so templates need not hard-code `/auth/login` or
+/// `/auth/logout` (both are configurable). Extract it in a handler:
+///
+/// ```rust,ignore
+/// use axum_conf::AuthRoutes;
+///
+/// async fn page(routes: AuthRoutes) -> axum::response::Html<String> {
+///     // POST is accepted on the logout route; prefer it over a plain link.
+///     axum::response::Html(format!(
+///         r#"<form method="post" action="{}"><button>Sign out</button></form>"#,
+///         routes.logout
+///     ))
+/// }
+/// ```
+///
+/// Use `Option<AuthRoutes>` to handle apps where the flow may be disabled; the
+/// plain extractor responds `404` in that case.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthRoutes {
+    /// Path of the login route (default `"/auth/login"`).
+    pub login: String,
+    /// Path of the logout route (default `"/auth/logout"`). Accepts `POST`, and
+    /// `GET` unless `logout_disable_get` is set.
+    pub logout: String,
+}
+
+impl<S: Send + Sync> axum::extract::FromRequestParts<S> for AuthRoutes {
+    type Rejection = (http::StatusCode, &'static str);
+
+    async fn from_request_parts(
+        parts: &mut http::request::Parts,
+        _state: &S,
+    ) -> std::result::Result<Self, Self::Rejection> {
+        parts.extensions.get::<Self>().cloned().ok_or((
+            http::StatusCode::NOT_FOUND,
+            "OIDC authorization code flow is not enabled",
+        ))
+    }
+}
+
+impl<S: Send + Sync> axum::extract::OptionalFromRequestParts<S> for AuthRoutes {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(
+        parts: &mut http::request::Parts,
+        _state: &S,
+    ) -> std::result::Result<Option<Self>, Self::Rejection> {
+        Ok(parts.extensions.get::<Self>().cloned())
+    }
 }
 
 #[allow(unused)]

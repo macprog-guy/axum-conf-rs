@@ -120,7 +120,8 @@ post_login_redirect = "/"                                  # After login (defaul
 post_logout_redirect = "/"                                 # After logout (default: "/")
 login_route = "/auth/login"                                # Login path (default shown)
 callback_route = "/auth/callback"                          # Callback path (default shown)
-logout_route = "/auth/logout"                              # Logout path (default shown)
+logout_route = "/auth/logout"                              # Logout path, accepts POST and GET (default shown)
+logout_disable_get = false                                 # Reject GET on the logout route, POST only (default: false)
 auto_redirect_to_login = false                             # Redirect browsers to login (default: false)
 
 # =============================================================================

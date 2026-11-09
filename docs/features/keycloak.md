@@ -287,7 +287,7 @@ When `redirect_uri` is set, axum-conf automatically registers these routes:
 |-------|-------------|---------|
 | Login | `/auth/login` | Redirects to Keycloak authorization endpoint |
 | Callback | `/auth/callback` | Handles the authorization code exchange |
-| Logout | `/auth/logout` | Clears session and redirects to Keycloak logout |
+| Logout | `/auth/logout` | Clears session and redirects to Keycloak logout (`POST` and `GET`) |
 
 These paths are configurable:
 
@@ -297,6 +297,29 @@ login_route = "/sso/login"
 callback_route = "/sso/callback"
 logout_route = "/sso/logout"
 ```
+
+### Sign-out Links and Forms
+
+The login and logout paths are configurable, so UI code should not hard-code them. When the
+auth code flow is enabled, `AuthRoutes` is available as an extractor (`Option<AuthRoutes>` if
+the flow may be off; the plain extractor responds `404` then):
+
+```rust
+use axum_conf::AuthRoutes;
+
+async fn page(routes: AuthRoutes) -> axum::response::Html<String> {
+    axum::response::Html(format!(
+        r#"<a href="{login}">Sign in</a>
+           <form method="post" action="{logout}"><button>Sign out</button></form>"#,
+        login = routes.login,
+        logout = routes.logout,
+    ))
+}
+```
+
+Prefer a `POST` form for sign-out: a plain `GET` link can be triggered cross-site (for example
+by an `<img>` tag), forcing a logout. `GET` is still accepted by default; set
+`logout_disable_get = true` once your UI uses the form.
 
 ### Security
 
@@ -460,7 +483,8 @@ async fn main() -> Result<()> {
 | `post_logout_redirect` | Redirect destination after logout | No | `"/"` |
 | `login_route` | Login endpoint path | No | `"/auth/login"` |
 | `callback_route` | Callback endpoint path | No | `"/auth/callback"` |
-| `logout_route` | Logout endpoint path | No | `"/auth/logout"` |
+| `logout_route` | Logout endpoint path (accepts `POST` and `GET`) | No | `"/auth/logout"` |
+| `logout_disable_get` | Reject `GET` on the logout route, leaving `POST` only | No | `false` |
 | `auto_redirect_to_login` | Auto-redirect unauthenticated browsers to login | No | `false` |
 
 ## Error Responses

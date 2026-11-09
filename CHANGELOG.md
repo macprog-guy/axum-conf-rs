@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   application check from `with_readiness_check` (or just "process is up" when none is set). The
   circuit breaker keeps protecting real queries.
 
+### Security
+- **OIDC login now rotates the session id (session fixation).** The auth-code callback calls
+  `Session::cycle_id()` after the ID token validates and before any token is stored, so the
+  pre-login session id (which an attacker may have planted) never becomes the authenticated one.
+  Session data carries over and the old id is deleted from the store. If rotation fails the login
+  is aborted. `axum_conf::Session` (`session` feature) is re-exported; apps with their own login
+  paths should call `session.cycle_id()` on any privilege change.
+
 ## [0.8.3] - 2026-11-06
 
 ### Added

@@ -84,3 +84,66 @@ async fn test_memory_session_basic() {
         .unwrap();
     assert_eq!(body2, "Counter: 2");
 }
+
+async fn rotate_handler(
+    session: tower_sessions::Session,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    session
+        .cycle_id()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok("rotated")
+}
+
+/// Sends `GET <uri>` with an optional cookie; returns (set-cookie pair, body).
+async fn request(app: &axum::Router, uri: &str, cookie: Option<&str>) -> (Option<String>, String) {
+    let mut builder = Request::builder().uri(uri);
+    if let Some(cookie) = cookie {
+        builder = builder.header(header::COOKIE, cookie);
+    }
+    let response = app
+        .clone()
+        .oneshot(builder.body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let set_cookie = response
+        .headers()
+        .get(header::SET_COOKIE)
+        .map(|v| v.to_str().unwrap().split(';').next().unwrap().to_string());
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (set_cookie, String::from_utf8_lossy(&body).into_owned())
+}
+
+/// `Session::cycle_id()` (as called by the OIDC callback) issues a new id, keeps
+/// the session data, and invalidates the old id.
+#[tokio::test]
+async fn test_memory_session_cycle_id_rotates_and_keeps_data() {
+    let config = Config::new().with_excluded_middlewares(vec![HttpMiddleware::RateLimiting]);
+    let app = FluentRouter::without_state(config)
+        .unwrap()
+        .route("/counter", get(session_handler))
+        .route("/rotate", get(rotate_handler))
+        .setup_session_handling()
+        .await
+        .unwrap()
+        .into_inner();
+
+    let (cookie, body) = request(&app, "/counter", None).await;
+    assert_eq!(body, "Counter: 1");
+    let old_cookie = cookie.expect("session cookie should be set");
+
+    let (new_cookie, body) = request(&app, "/rotate", Some(&old_cookie)).await;
+    assert_eq!(body, "rotated");
+    let new_cookie = new_cookie.expect("rotation should issue a new cookie");
+    assert_ne!(old_cookie, new_cookie, "session id must change");
+
+    // Data carried over to the new id.
+    let (_, body) = request(&app, "/counter", Some(&new_cookie)).await;
+    assert_eq!(body, "Counter: 2");
+
+    // The old id no longer resolves to the session (a fresh one starts at 1).
+    let (_, body) = request(&app, "/counter", Some(&old_cookie)).await;
+    assert_eq!(body, "Counter: 1", "the old session id must be invalidated");
+}

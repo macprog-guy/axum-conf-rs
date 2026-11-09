@@ -319,6 +319,8 @@ pub use config::{CircuitBreakerConfig, CircuitBreakerTargetConfig};
 pub use config::{SameSiteConfig, SessionStoreConfig};
 pub use error::{Error, ErrorKind, ErrorResponse};
 pub use fluent::{FluentRouter, Readiness, ShutdownNotifier, ShutdownPhase};
+#[cfg(feature = "session")]
+pub use tower_sessions::Session;
 pub use utils::{ApiVersion, Sensitive};
 
 /// Convenience alias for results returned by this crate, fixing the error type

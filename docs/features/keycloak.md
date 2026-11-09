@@ -307,6 +307,7 @@ The auth code flow includes multiple security measures:
 - **Nonce validation**: Ensures the ID token was issued for this specific authentication
 - **Transparent token refresh**: Expired access tokens are automatically refreshed using the refresh token (with 30-second buffer before expiry)
 - **Session-based token storage**: Tokens are stored server-side in the session, never exposed to the browser
+- **Session-id rotation at login**: The callback calls `Session::cycle_id()` after the ID token validates and before any token is stored, so a session id planted before login (session fixation) never becomes the authenticated one. Session data carries over and the old id is deleted from the store. If your app has its own login path, call `session.cycle_id().await?` on any privilege change (`axum_conf::Session` is re-exported).
 
 ### Bearer + Session Coexistence
 

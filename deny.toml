@@ -14,11 +14,6 @@ version = 2
 ignore = [
     # Timing side-channel in `rsa`; hard to exploit and the crate offers no fix.
     "RUSTSEC-2023-0071",
-    # `paste` (via `utoipa-axum`) is unmaintained; no security impact today.
-    "RUSTSEC-2024-0436",
-    # `rustls-pemfile` (via `testcontainers`, dev-only) unmaintained; PEM specs
-    # are stable, so the maintenance risk is acceptable.
-    "RUSTSEC-2025-0134",
     # `astral-tokio-tar` (via `testcontainers` 0.27, dev-only) unmaintained. It is
     # only used to build test container images; no upgrade path yet because
     # `testcontainers-modules` 0.15 (latest) pins `testcontainers` 0.27.
